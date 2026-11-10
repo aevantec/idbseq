@@ -1,0 +1,18 @@
+# Rust
+/target/
+**/*.rs.bk
+
+# Local data
+/data/
+*.redb
+
+# Node / PHP SDKs
+node_modules/
+/sdk/php/vendor/
+
+# Editors and OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
+

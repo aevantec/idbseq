@@ -1,0 +1,5 @@
+[toolchain]
+# Pinned stable toolchain. Keep in sync with `rust-version` (MSRV) in Cargo.toml.
+channel = "1.99.1"
+components = ["rustfmt", "clippy"]
+profile = "minimal"

@@ -1,0 +1,12 @@
+# Only the Rust workspace is needed to build the image.
+.git
+.github
+target
+data
+sdk
+examples
+docs
+**/*.redb
+**/node_modules
+Dockerfile
+.dockerignore

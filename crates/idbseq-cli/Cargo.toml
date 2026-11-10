@@ -1,0 +1,35 @@
+[package]
+name = "idbseq-cli"
+description = "idbseq: command-line client for the idbseq HTTP API"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lib]
+name = "idbseq_cli"
+path = "src/lib.rs"
+
+[[bin]]
+name = "idbseq"
+path = "src/main.rs"
+
+[dependencies]
+clap = { version = "4.5", features = ["derive", "env", "wrap_help"] }
+rpassword = "7.4"
+# TLS: rustls on the `ring` provider only (no aws-lc, no OpenSSL); certificates
+# are checked against the operating system trust store (rustls-native-certs).
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+toml = { version = "0.9", default-features = false, features = ["parse", "serde", "display"] }
+rustls-native-certs = "0.8"
+ureq = { version = "3.1", default-features = false, features = ["rustls-no-provider"] }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+
+[lints]
+workspace = true

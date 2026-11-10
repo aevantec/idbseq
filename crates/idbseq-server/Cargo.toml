@@ -1,0 +1,55 @@
+[package]
+name = "idbseq-server"
+description = "idbseqd: the idbseq HTTP API server"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "idbseqd"
+path = "src/main.rs"
+
+[lints]
+workspace = true
+
+[dependencies]
+argon2 = "0.6.0"
+axum = "0.8.9"
+axum-server = { version = "0.9.0", features = ["tls-rustls-no-provider"] }
+clap = { version = "4.6.7", features = ["derive", "env"] }
+governor = "0.10.4"
+hex = "0.4.3"
+idbseq-core = { version = "0.1.0", path = "../idbseq-core" }
+prometheus-client = "0.25.2"
+redb.workspace = true
+rand = "0.10.3"
+rpassword = "7.5.4"
+rustls = { version = "0.23.46", default-features = false, features = ["ring", "std", "tls12", "logging"] }
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
+sha2 = "0.11.1"
+subtle = "2.6.1"
+thiserror.workspace = true
+time = { version = "0.3.55", features = ["formatting", "parsing"] }
+tokio = { version = "1.54.1", features = ["full"] }
+toml = "1.2.1"
+tower = "0.5.3"
+tower-http = { version = "0.7.1", features = ["trace", "request-id", "timeout", "limit", "set-header", "catch-panic", "util"] }
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.23", features = ["json", "env-filter"] }
+utoipa = { version = "6.0.0", features = ["axum_extras"] }
+uuid = { version = "1.29.2", features = ["v4"] }
+
+[dev-dependencies]
+http-body-util = "0.1.5"
+reqwest = { version = "0.13.5", features = ["blocking", "json"], default-features = false }
+tempfile.workspace = true
+tower = { version = "0.5.3", features = ["util"] }
+
+# HTTP latency benchmark (US-0017, US-0038). Run with `cargo bench`.
+[[bench]]
+name = "http_next"
+harness = false

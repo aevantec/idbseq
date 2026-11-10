@@ -1,0 +1,36 @@
+# cargo-deny: supply-chain checks run in CI (US-0002).
+# Run locally with `cargo deny check`.
+
+[graph]
+all-features = true
+
+[advisories]
+# RustSec advisories: vulnerable and yanked crates fail the check.
+yanked = "deny"
+ignore = []
+
+[licenses]
+# Permissive licenses only. Extend deliberately, with a reason in the commit.
+allow = [
+  "Apache-2.0",
+  "Apache-2.0 WITH LLVM-exception",
+  "BSD-2-Clause",
+  "BSD-3-Clause",
+  "ISC",
+  "MIT",
+  "Unicode-3.0",
+  "Zlib",
+]
+confidence-threshold = 0.9
+unused-allowed-license = "allow"
+# Our own crates are not published to crates.io (publish = false).
+private = { ignore = true }
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+allow-wildcard-paths = true
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"

@@ -1,0 +1,7 @@
+# gitleaks: default rules, plus the fake API key the SDK unit tests use as a fixture.
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Test fixture, not a credential"
+regexes = ['''idb_k7f3a9c2_secret''']

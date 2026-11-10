@@ -1,0 +1,90 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  # Coverage gate: the job fails below this share of covered lines.
+  COVERAGE_MIN_LINES: 80
+
+jobs:
+  commits:
+    name: commit messages
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - name: "New commits follow `<type>: <description>`"
+        env:
+          BEFORE: ${{ github.event.before }}
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          if [[ -n "${BASE}" ]]; then
+            range="${BASE}..${HEAD}"
+          elif [[ -n "${BEFORE}" && "${BEFORE}" != 0000000000000000000000000000000000000000 ]]; then
+            range="${BEFORE}..${HEAD}"
+          else
+            range="${HEAD}~1..${HEAD}"
+          fi
+          echo "checking ${range}"
+          scripts/check-commit-msg.sh --range "${range}"
+
+  check:
+    name: fmt, clippy, test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install toolchain from rust-toolchain.toml
+        run: rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+      - name: Format
+        run: cargo fmt --all --check
+      - name: Clippy (warnings are errors)
+        run: cargo lint
+      - name: Test
+        run: cargo test --workspace --locked
+      - name: OpenAPI contract matches api/openapi.json
+        run: cargo run --locked -q -p idbseq-server --bin idbseqd -- openapi --check api/openapi.json
+
+  coverage:
+    name: coverage (>= 80% lines)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install toolchain from rust-toolchain.toml
+        run: |
+          rustup toolchain install
+          rustup component add llvm-tools-preview
+      - uses: Swatinem/rust-cache@v2
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-llvm-cov
+      - name: Measure coverage
+        run: cargo llvm-cov --workspace --locked --fail-under-lines "$COVERAGE_MIN_LINES"
+
+  deny:
+    name: licenses and advisories
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check

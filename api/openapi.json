@@ -1,0 +1,2465 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "idbseq",
+    "description": "Increasing numeric ID sequences over HTTP/JSON. Every response uses the envelope `{ success, data, error, meta? }`. Error codes: VALIDATION_FAILED 400, UNAUTHORIZED 401, FORBIDDEN 403, PROTECTED_COLLECTION 403, NOT_FOUND 404, COLLECTION_NOT_FOUND 404, COLLECTION_EXISTS 409, SEQUENCE_EXHAUSTED 409, REQUEST_TIMEOUT 408, PAYLOAD_TOO_LARGE 413, RATE_LIMITED 429 (with Retry-After), INTERNAL 500. See docs/API.md.",
+    "license": {
+      "name": "MIT",
+      "identifier": "MIT"
+    },
+    "version": "0.1.0"
+  },
+  "paths": {
+    "/healthz": {
+      "get": {
+        "tags": [
+          "health"
+        ],
+        "summary": "Liveness: the process is up.",
+        "operationId": "healthz",
+        "responses": {
+          "200": {
+            "description": "Up",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_HealthDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/readyz": {
+      "get": {
+        "tags": [
+          "health"
+        ],
+        "summary": "Readiness: the store is open and the server is not shutting down.",
+        "operationId": "readyz",
+        "responses": {
+          "200": {
+            "description": "Ready",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_HealthDto"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Not ready"
+          }
+        }
+      }
+    },
+    "/v1/admin/password": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Change the admin password. Revokes every session.",
+        "operationId": "change_password",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PasswordBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Password changed; sign in again",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EmptyEnvelope"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error400"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error401"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error403"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error404"
+          },
+          "408": {
+            "$ref": "#/components/responses/Error408"
+          },
+          "413": {
+            "$ref": "#/components/responses/Error413"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error429"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error500"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/audit": {
+      "get": {
+        "tags": [
+          "audit"
+        ],
+        "summary": "The audit log, newest first.",
+        "operationId": "audit",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "collection",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "action",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Audit entries",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_Vec_AuditDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error400"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error401"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error403"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error404"
+          },
+          "408": {
+            "$ref": "#/components/responses/Error408"
+          },
+          "413": {
+            "$ref": "#/components/responses/Error413"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error429"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error500"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/auth/login": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Sign in as the admin. Returns an opaque bearer token.",
+        "operationId": "login",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoginBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Session token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_SessionDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error400"
+          },
+          "401": {
+            "description": "UNAUTHORIZED: wrong username/password or locked account"
+          },
+          "403": {
+            "description": "FORBIDDEN: no admin exists yet; run `idbseqd admin init`"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error404"
+          },
+          "408": {
+            "$ref": "#/components/responses/Error408"
+          },
+          "413": {
+            "$ref": "#/components/responses/Error413"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error429"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error500"
+          }
+        }
+      }
+    },
+    "/v1/auth/logout": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Revoke the current admin session.",
+        "operationId": "logout",
+        "responses": {
+          "200": {
+            "description": "Session revoked",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EmptyEnvelope"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error400"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error401"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error403"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error404"
+          },
+          "408": {
+            "$ref": "#/components/responses/Error408"
+          },
+          "413": {
+            "$ref": "#/components/responses/Error413"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error429"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error500"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/collections": {
+      "get": {
+        "tags": [
+          "collections"
+        ],
+        "summary": "List collections.",
+        "operationId": "list",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "1–500, default 50.",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "prefix",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "A page of collections, sorted by name",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_Vec_CollectionDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error400"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error401"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error403"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error404"
+          },
+          "408": {
+            "$ref": "#/components/responses/Error408"
+          },
+          "413": {
+            "$ref": "#/components/responses/Error413"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error429"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error500"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "collections"
+        ],
+        "summary": "Create a collection.",
+        "operationId": "create",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateCollectionBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_CollectionDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error400"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error401"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error403"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error404"
+          },
+          "408": {
+            "$ref": "#/components/responses/Error408"
+          },
+          "413": {
+            "$ref": "#/components/responses/Error413"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error429"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error500"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/collections/{name}": {
+      "get": {
+        "tags": [
+          "collections"
+        ],
+        "summary": "Get one collection.",
+        "operationId": "get",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The collection",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_CollectionDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error400"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error401"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error403"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error404"
+          },
+          "408": {
+            "$ref": "#/components/responses/Error408"
+          },
+          "413": {
+            "$ref": "#/components/responses/Error413"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error429"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error500"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      },
+      "delete": {
+        "tags": [
+          "collections"
+        ],
+        "summary": "Delete a collection and its counter. Requires `confirm` (query or body) equal to the name.",
+        "operationId": "delete",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "confirm",
+            "in": "path",
+            "description": "Must equal the collection name.",
+            "required": true,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "Alternative to `?confirm=`",
+          "content": {
+            "application/json": {
+              "schema": {
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/ConfirmBody"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The collection as it was",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_CollectionDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error400"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error401"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error403"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error404"
+          },
+          "408": {
+            "$ref": "#/components/responses/Error408"
+          },
+          "413": {
+            "$ref": "#/components/responses/Error413"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error429"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error500"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      },
+      "patch": {
+        "tags": [
+          "collections"
+        ],
+        "summary": "Change `max`, `protected`, `durability`, or (before the first ID) `start`/`step`.",
+        "operationId": "update",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PatchCollectionBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_CollectionDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error400"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error401"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error403"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error404"
+          },
+          "408": {
+            "$ref": "#/components/responses/Error408"
+          },
+          "413": {
+            "$ref": "#/components/responses/Error413"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error429"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error500"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/collections/{name}/last": {
+      "get": {
+        "tags": [
+          "ids"
+        ],
+        "summary": "The last issued ID and a preview of the next one.",
+        "operationId": "last",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Never changes the counter",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_LastDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error400"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error401"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error403"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error404"
+          },
+          "408": {
+            "$ref": "#/components/responses/Error408"
+          },
+          "413": {
+            "$ref": "#/components/responses/Error413"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error429"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error500"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/collections/{name}/next": {
+      "post": {
+        "tags": [
+          "ids"
+        ],
+        "summary": "Issue the next ID, or a batch with `?count=n`.",
+        "operationId": "next",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "count",
+            "in": "query",
+            "description": "Number of IDs (1–10,000 by default). Without it, the response is `{ \"id\" }`.",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "description": "Retry-safe key; a repeat returns the original IDs",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "`{ id }` without `count`; `{ first, last, count, step }` with it",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_BatchDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error400"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error401"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error403"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error404"
+          },
+          "408": {
+            "$ref": "#/components/responses/Error408"
+          },
+          "409": {
+            "description": "SEQUENCE_EXHAUSTED: nothing was issued"
+          },
+          "413": {
+            "$ref": "#/components/responses/Error413"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error429"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error500"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/collections/{name}/reset": {
+      "post": {
+        "tags": [
+          "ids"
+        ],
+        "summary": "Move the counter. Requires `confirm` equal to the name; backwards needs `allow_rewind`.",
+        "operationId": "reset",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResetBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Previous and new counter position",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_ResetDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error400"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error401"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error403"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error404"
+          },
+          "408": {
+            "$ref": "#/components/responses/Error408"
+          },
+          "413": {
+            "$ref": "#/components/responses/Error413"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error429"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error500"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/keys": {
+      "get": {
+        "tags": [
+          "keys"
+        ],
+        "summary": "List API keys (never with secrets).",
+        "operationId": "list",
+        "responses": {
+          "200": {
+            "description": "Every key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_Vec_KeyDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error400"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error401"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error403"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error404"
+          },
+          "408": {
+            "$ref": "#/components/responses/Error408"
+          },
+          "413": {
+            "$ref": "#/components/responses/Error413"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error429"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error500"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "keys"
+        ],
+        "summary": "Create an API key. The full key is in the response only.",
+        "operationId": "create",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateKeyBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Created; `key` is shown once",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_CreatedKeyDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error400"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error401"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error403"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error404"
+          },
+          "408": {
+            "$ref": "#/components/responses/Error408"
+          },
+          "413": {
+            "$ref": "#/components/responses/Error413"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error429"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error500"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/keys/{id}": {
+      "delete": {
+        "tags": [
+          "keys"
+        ],
+        "summary": "Revoke an API key immediately.",
+        "operationId": "revoke",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Revoked",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EmptyEnvelope"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error400"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error401"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error403"
+          },
+          "404": {
+            "description": "NOT_FOUND"
+          },
+          "408": {
+            "$ref": "#/components/responses/Error408"
+          },
+          "413": {
+            "$ref": "#/components/responses/Error413"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error429"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error500"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Action": {
+        "type": "string",
+        "description": "Audited actions.",
+        "enum": [
+          "collection.create",
+          "collection.update",
+          "collection.reset",
+          "collection.delete",
+          "key.create",
+          "key.revoke",
+          "auth.login",
+          "auth.login_failed",
+          "admin.password_change",
+          "admin.init"
+        ]
+      },
+      "AuditDto": {
+        "type": "object",
+        "required": [
+          "id",
+          "at",
+          "actor",
+          "action"
+        ],
+        "properties": {
+          "action": {
+            "$ref": "#/components/schemas/Action"
+          },
+          "actor": {
+            "type": "string"
+          },
+          "at": {
+            "type": "string"
+          },
+          "client_ip": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "collection": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "new": {},
+          "previous": {},
+          "request_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "BatchDto": {
+        "type": "object",
+        "required": [
+          "first",
+          "last",
+          "count",
+          "step"
+        ],
+        "properties": {
+          "count": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "first": {
+            "$ref": "#/components/schemas/i64"
+          },
+          "last": {
+            "$ref": "#/components/schemas/i64"
+          },
+          "step": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
+      "Code": {
+        "type": "string",
+        "description": "Stable error codes (see `docs/API.md`).",
+        "enum": [
+          "VALIDATION_FAILED",
+          "UNAUTHORIZED",
+          "FORBIDDEN",
+          "PROTECTED_COLLECTION",
+          "NOT_FOUND",
+          "COLLECTION_NOT_FOUND",
+          "COLLECTION_EXISTS",
+          "SEQUENCE_EXHAUSTED",
+          "REQUEST_TIMEOUT",
+          "PAYLOAD_TOO_LARGE",
+          "RATE_LIMITED",
+          "INTERNAL"
+        ]
+      },
+      "CollectionDto": {
+        "type": "object",
+        "description": "A collection as returned by the API.",
+        "required": [
+          "name",
+          "start",
+          "step",
+          "max",
+          "protected",
+          "durability",
+          "created_at"
+        ],
+        "properties": {
+          "created_at": {
+            "type": "string",
+            "description": "RFC 3339, UTC."
+          },
+          "durability": {
+            "$ref": "#/components/schemas/DurabilityDto"
+          },
+          "last_id": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/i64"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "max": {
+            "$ref": "#/components/schemas/i64"
+          },
+          "name": {
+            "type": "string"
+          },
+          "next_id": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/i64"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "protected": {
+            "type": "boolean"
+          },
+          "start": {
+            "$ref": "#/components/schemas/i64"
+          },
+          "step": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
+      "ConfirmBody": {
+        "type": "object",
+        "description": "Body of `DELETE /v1/collections/{name}` (or use `?confirm=`).",
+        "properties": {
+          "confirm": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Must equal the collection name."
+          }
+        },
+        "additionalProperties": false
+      },
+      "CreateCollectionBody": {
+        "type": "object",
+        "description": "`POST /v1/collections`.",
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "durability": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/DurabilityDto"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "max": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/i64"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "protected": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "start": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/i64"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "step": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false
+      },
+      "CreateKeyBody": {
+        "type": "object",
+        "required": [
+          "name",
+          "scopes"
+        ],
+        "properties": {
+          "collections": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "name": {
+            "type": "string"
+          },
+          "scopes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Scope"
+            }
+          }
+        },
+        "additionalProperties": false
+      },
+      "CreatedKeyDto": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/KeyDto"
+          },
+          {
+            "type": "object",
+            "required": [
+              "key"
+            ],
+            "properties": {
+              "key": {
+                "type": "string",
+                "description": "The full key `idb_<id>_<secret>`. Shown only once."
+              }
+            }
+          }
+        ]
+      },
+      "DurabilityDto": {
+        "oneOf": [
+          {
+            "type": "object",
+            "description": "Every ID is on disk before it is returned.",
+            "required": [
+              "mode"
+            ],
+            "properties": {
+              "mode": {
+                "type": "string",
+                "enum": [
+                  "strict"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "`size` IDs are reserved on disk at a time; a crash leaves a gap, never a duplicate.",
+            "required": [
+              "size",
+              "mode"
+            ],
+            "properties": {
+              "mode": {
+                "type": "string",
+                "enum": [
+                  "block"
+                ]
+              },
+              "size": {
+                "type": "integer",
+                "format": "int32",
+                "minimum": 0
+              }
+            }
+          }
+        ],
+        "description": "How a collection makes issued IDs durable."
+      },
+      "EmptyEnvelope": {
+        "type": "object",
+        "description": "A success with no data: `{ \"success\": true, \"data\": null, \"error\": null }`.",
+        "required": [
+          "success"
+        ],
+        "properties": {
+          "data": {
+            "description": "Always `null`."
+          },
+          "error": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/ErrorBody"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "success": {
+            "type": "boolean"
+          }
+        }
+      },
+      "Envelope_BatchDto": {
+        "type": "object",
+        "description": "`{ success, data, error, meta? }`.",
+        "required": [
+          "success"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "first",
+              "last",
+              "count",
+              "step"
+            ],
+            "properties": {
+              "count": {
+                "type": "integer",
+                "format": "int32",
+                "minimum": 0
+              },
+              "first": {
+                "$ref": "#/components/schemas/i64"
+              },
+              "last": {
+                "$ref": "#/components/schemas/i64"
+              },
+              "step": {
+                "type": "integer",
+                "format": "int64",
+                "minimum": 0
+              }
+            }
+          },
+          "error": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/ErrorBody"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "meta": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Meta"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "success": {
+            "type": "boolean"
+          }
+        }
+      },
+      "Envelope_CollectionDto": {
+        "type": "object",
+        "description": "`{ success, data, error, meta? }`.",
+        "required": [
+          "success"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "A collection as returned by the API.",
+            "required": [
+              "name",
+              "start",
+              "step",
+              "max",
+              "protected",
+              "durability",
+              "created_at"
+            ],
+            "properties": {
+              "created_at": {
+                "type": "string",
+                "description": "RFC 3339, UTC."
+              },
+              "durability": {
+                "$ref": "#/components/schemas/DurabilityDto"
+              },
+              "last_id": {
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/i64"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "max": {
+                "$ref": "#/components/schemas/i64"
+              },
+              "name": {
+                "type": "string"
+              },
+              "next_id": {
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/i64"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "protected": {
+                "type": "boolean"
+              },
+              "start": {
+                "$ref": "#/components/schemas/i64"
+              },
+              "step": {
+                "type": "integer",
+                "format": "int64",
+                "minimum": 0
+              }
+            }
+          },
+          "error": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/ErrorBody"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "meta": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Meta"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "success": {
+            "type": "boolean"
+          }
+        }
+      },
+      "Envelope_CreatedKeyDto": {
+        "type": "object",
+        "description": "`{ success, data, error, meta? }`.",
+        "required": [
+          "success"
+        ],
+        "properties": {
+          "data": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/KeyDto"
+              },
+              {
+                "type": "object",
+                "required": [
+                  "key"
+                ],
+                "properties": {
+                  "key": {
+                    "type": "string",
+                    "description": "The full key `idb_<id>_<secret>`. Shown only once."
+                  }
+                }
+              }
+            ]
+          },
+          "error": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/ErrorBody"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "meta": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Meta"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "success": {
+            "type": "boolean"
+          }
+        }
+      },
+      "Envelope_HealthDto": {
+        "type": "object",
+        "description": "`{ success, data, error, meta? }`.",
+        "required": [
+          "success"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "status"
+            ],
+            "properties": {
+              "status": {
+                "type": "string"
+              }
+            }
+          },
+          "error": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/ErrorBody"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "meta": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Meta"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "success": {
+            "type": "boolean"
+          }
+        }
+      },
+      "Envelope_LastDto": {
+        "type": "object",
+        "description": "`{ success, data, error, meta? }`.",
+        "required": [
+          "success"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "properties": {
+              "last_id": {
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/i64"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "next_id": {
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/i64"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            }
+          },
+          "error": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/ErrorBody"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "meta": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Meta"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "success": {
+            "type": "boolean"
+          }
+        }
+      },
+      "Envelope_ResetDto": {
+        "type": "object",
+        "description": "`{ success, data, error, meta? }`.",
+        "required": [
+          "success"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "properties": {
+              "last_id": {
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/i64"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "next_id": {
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/i64"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "previous_last_id": {
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/i64"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            }
+          },
+          "error": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/ErrorBody"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "meta": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Meta"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "success": {
+            "type": "boolean"
+          }
+        }
+      },
+      "Envelope_SessionDto": {
+        "type": "object",
+        "description": "`{ success, data, error, meta? }`.",
+        "required": [
+          "success"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": [
+              "token",
+              "expires_at"
+            ],
+            "properties": {
+              "expires_at": {
+                "type": "string"
+              },
+              "token": {
+                "type": "string"
+              }
+            }
+          },
+          "error": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/ErrorBody"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "meta": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Meta"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "success": {
+            "type": "boolean"
+          }
+        }
+      },
+      "Envelope_Vec_AuditDto": {
+        "type": "object",
+        "description": "`{ success, data, error, meta? }`.",
+        "required": [
+          "success"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "id",
+                "at",
+                "actor",
+                "action"
+              ],
+              "properties": {
+                "action": {
+                  "$ref": "#/components/schemas/Action"
+                },
+                "actor": {
+                  "type": "string"
+                },
+                "at": {
+                  "type": "string"
+                },
+                "client_ip": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "collection": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "id": {
+                  "type": "integer",
+                  "format": "int64",
+                  "minimum": 0
+                },
+                "new": {},
+                "previous": {},
+                "request_id": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              }
+            }
+          },
+          "error": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/ErrorBody"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "meta": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Meta"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "success": {
+            "type": "boolean"
+          }
+        }
+      },
+      "Envelope_Vec_CollectionDto": {
+        "type": "object",
+        "description": "`{ success, data, error, meta? }`.",
+        "required": [
+          "success"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "description": "A collection as returned by the API.",
+              "required": [
+                "name",
+                "start",
+                "step",
+                "max",
+                "protected",
+                "durability",
+                "created_at"
+              ],
+              "properties": {
+                "created_at": {
+                  "type": "string",
+                  "description": "RFC 3339, UTC."
+                },
+                "durability": {
+                  "$ref": "#/components/schemas/DurabilityDto"
+                },
+                "last_id": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/i64"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "max": {
+                  "$ref": "#/components/schemas/i64"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "next_id": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/i64"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "protected": {
+                  "type": "boolean"
+                },
+                "start": {
+                  "$ref": "#/components/schemas/i64"
+                },
+                "step": {
+                  "type": "integer",
+                  "format": "int64",
+                  "minimum": 0
+                }
+              }
+            }
+          },
+          "error": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/ErrorBody"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "meta": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Meta"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "success": {
+            "type": "boolean"
+          }
+        }
+      },
+      "Envelope_Vec_KeyDto": {
+        "type": "object",
+        "description": "`{ success, data, error, meta? }`.",
+        "required": [
+          "success"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "id",
+                "name",
+                "scopes",
+                "collections",
+                "created_at"
+              ],
+              "properties": {
+                "collections": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "created_at": {
+                  "type": "string"
+                },
+                "id": {
+                  "type": "string"
+                },
+                "last_used_at": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "name": {
+                  "type": "string"
+                },
+                "scopes": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Scope"
+                  }
+                }
+              }
+            }
+          },
+          "error": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/ErrorBody"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "meta": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Meta"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "success": {
+            "type": "boolean"
+          }
+        }
+      },
+      "ErrorBody": {
+        "type": "object",
+        "description": "The `error` member of a failed response.",
+        "required": [
+          "code",
+          "message"
+        ],
+        "properties": {
+          "code": {
+            "$ref": "#/components/schemas/Code"
+          },
+          "details": {},
+          "message": {
+            "type": "string"
+          }
+        }
+      },
+      "HealthDto": {
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "properties": {
+          "status": {
+            "type": "string"
+          }
+        }
+      },
+      "KeyDto": {
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "scopes",
+          "collections",
+          "created_at"
+        ],
+        "properties": {
+          "collections": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "created_at": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "last_used_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "scopes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Scope"
+            }
+          }
+        }
+      },
+      "LastDto": {
+        "type": "object",
+        "properties": {
+          "last_id": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/i64"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "next_id": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/i64"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "LoginBody": {
+        "type": "object",
+        "required": [
+          "username",
+          "password"
+        ],
+        "properties": {
+          "password": {
+            "type": "string"
+          },
+          "username": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "Meta": {
+        "type": "object",
+        "description": "Pagination metadata for lists.",
+        "required": [
+          "total",
+          "limit"
+        ],
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "total": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "PasswordBody": {
+        "type": "object",
+        "required": [
+          "current_password",
+          "new_password"
+        ],
+        "properties": {
+          "current_password": {
+            "type": "string"
+          },
+          "new_password": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "PatchCollectionBody": {
+        "type": "object",
+        "description": "`PATCH /v1/collections/{name}`.",
+        "properties": {
+          "durability": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/DurabilityDto"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "max": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/i64"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "protected": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "start": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/i64"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "step": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false
+      },
+      "ResetBody": {
+        "type": "object",
+        "description": "`POST /v1/collections/{name}/reset`.",
+        "properties": {
+          "allow_rewind": {
+            "type": "boolean",
+            "description": "Required to move the counter backwards."
+          },
+          "confirm": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Must equal the collection name."
+          },
+          "value": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/i64",
+                "description": "The next ID to issue; default `start`."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
+      "ResetDto": {
+        "type": "object",
+        "properties": {
+          "last_id": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/i64"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "next_id": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/i64"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "previous_last_id": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/i64"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "Scope": {
+        "type": "string",
+        "description": "What a key may do.",
+        "enum": [
+          "read",
+          "generate",
+          "manage"
+        ]
+      },
+      "SessionDto": {
+        "type": "object",
+        "required": [
+          "token",
+          "expires_at"
+        ],
+        "properties": {
+          "expires_at": {
+            "type": "string"
+          },
+          "token": {
+            "type": "string"
+          }
+        }
+      },
+      "i64": {
+        "type": "integer",
+        "format": "int64"
+      }
+    },
+    "responses": {
+      "Error400": {
+        "description": "Error envelope: VALIDATION_FAILED",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/EmptyEnvelope"
+            }
+          }
+        }
+      },
+      "Error401": {
+        "description": "Error envelope: UNAUTHORIZED",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/EmptyEnvelope"
+            }
+          }
+        }
+      },
+      "Error403": {
+        "description": "Error envelope: FORBIDDEN or PROTECTED_COLLECTION",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/EmptyEnvelope"
+            }
+          }
+        }
+      },
+      "Error404": {
+        "description": "Error envelope: NOT_FOUND or COLLECTION_NOT_FOUND",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/EmptyEnvelope"
+            }
+          }
+        }
+      },
+      "Error408": {
+        "description": "Error envelope: REQUEST_TIMEOUT",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/EmptyEnvelope"
+            }
+          }
+        }
+      },
+      "Error413": {
+        "description": "Error envelope: PAYLOAD_TOO_LARGE",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/EmptyEnvelope"
+            }
+          }
+        }
+      },
+      "Error429": {
+        "description": "Error envelope: RATE_LIMITED, with a Retry-After header in seconds",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/EmptyEnvelope"
+            }
+          }
+        }
+      },
+      "Error500": {
+        "description": "Error envelope: INTERNAL (generic message; details are logged)",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/EmptyEnvelope"
+            }
+          }
+        }
+      }
+    },
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "An API key `idb_<id>_<secret>` or an admin session token from `POST /v1/auth/login`."
+      }
+    }
+  },
+  "tags": [
+    {
+      "name": "collections",
+      "description": "Create, list, change and delete collections"
+    },
+    {
+      "name": "ids",
+      "description": "Generate, read and reset IDs"
+    },
+    {
+      "name": "auth",
+      "description": "Admin sign-in"
+    },
+    {
+      "name": "keys",
+      "description": "API keys (admin)"
+    },
+    {
+      "name": "audit",
+      "description": "Audit log (admin)"
+    },
+    {
+      "name": "health",
+      "description": "Liveness and readiness"
+    }
+  ]
+}

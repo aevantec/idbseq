@@ -1,0 +1,242 @@
+name: Release
+
+# Tagging `v*` (the tag must equal the version in Cargo.toml and
+# sdk/node/package.json):
+#   - builds idbseqd and idbseq for Linux (gnu and musl, x86_64 and aarch64) and
+#     macOS (x86_64 and arm64) and publishes them with SHA-256 checksums as a
+#     GitHub Release;
+#   - pushes a multi-arch image to ghcr.io/<this repository>;
+#   - in the public repository only (PUBLIC_REPOSITORY below), publishes the
+#     Node SDK to npm and the PHP SDK to Packagist through the read-only mirror
+#     repository aevantec/idbseq-php.
+# Nothing goes to crates.io. One-time setup and the release checklist:
+# docs/releasing.md.
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  ZIG_VERSION: 0.17.1
+  PHP_MIRROR: aevantec/idbseq-php
+
+jobs:
+  verify:
+    name: Tag matches package versions
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Compare the tag with Cargo.toml and sdk/node/package.json
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          want="${TAG#v}"
+          cargo="$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -n 1)"
+          node="$(node -p "require('./sdk/node/package.json').version")"
+          echo "tag ${want}, Cargo.toml ${cargo}, sdk/node ${node}"
+          if [[ "${cargo}" != "${want}" || "${node}" != "${want}" ]]; then
+            echo "::error::tag ${TAG} must equal the Cargo.toml and sdk/node/package.json versions"
+            exit 1
+          fi
+
+  binaries:
+    name: binaries (${{ matrix.target }})
+    needs: verify
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Linux targets are cross-compiled with cargo-zigbuild; gnu builds
+          # link against glibc 2.28 so they run on older distributions.
+          - { target: x86_64-unknown-linux-gnu, os: ubuntu-latest, zig: '.2.28' }
+          - { target: aarch64-unknown-linux-gnu, os: ubuntu-latest, zig: '.2.28' }
+          - { target: x86_64-unknown-linux-musl, os: ubuntu-latest, zig: '' }
+          - { target: aarch64-unknown-linux-musl, os: ubuntu-latest, zig: '' }
+          - { target: x86_64-apple-darwin, os: macos-latest }
+          - { target: aarch64-apple-darwin, os: macos-latest }
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install toolchain from rust-toolchain.toml
+        run: |
+          rustup toolchain install
+          rustup target add "${{ matrix.target }}"
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+      - name: Install zig and cargo-zigbuild
+        if: runner.os == 'Linux'
+        # cargo-zigbuild finds zig through `python3 -m ziglang`.
+        run: python3 -m pip install --user --break-system-packages "ziglang==${ZIG_VERSION}"
+      - uses: taiki-e/install-action@v2
+        if: runner.os == 'Linux'
+        with:
+          tool: cargo-zigbuild
+      - name: Build (Linux)
+        if: runner.os == 'Linux'
+        run: cargo zigbuild --release --locked --target "${{ matrix.target }}${{ matrix.zig }}" --bin idbseqd --bin idbseq
+      - name: Build (macOS)
+        if: runner.os == 'macOS'
+        run: cargo build --release --locked --target "${{ matrix.target }}" --bin idbseqd --bin idbseq
+      - name: Package
+        shell: bash
+        env:
+          TARGET: ${{ matrix.target }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          name="idbseq-${TAG}-${TARGET}"
+          mkdir -p "dist/${name}"
+          cp "target/${TARGET}/release/idbseqd" "target/${TARGET}/release/idbseq" README.md LICENSE "dist/${name}/"
+          tar -C dist -czf "dist/${name}.tar.gz" "${name}"
+          (cd dist && shasum -a 256 "${name}.tar.gz" > "${name}.tar.gz.sha256")
+      - uses: actions/upload-artifact@v4
+        with:
+          name: idbseq-${{ matrix.target }}
+          path: |
+            dist/*.tar.gz
+            dist/*.sha256
+          if-no-files-found: error
+
+  release:
+    name: GitHub Release
+    needs: binaries
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          pattern: idbseq-*
+          merge-multiple: true
+      - name: Combine checksums
+        working-directory: dist
+        run: |
+          set -euo pipefail
+          cat ./*.sha256 > SHA256SUMS
+          sha256sum --check SHA256SUMS
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          prerelease=()
+          if [[ "${TAG}" == *-* ]]; then prerelease=(--prerelease); fi
+          gh release create "${TAG}" dist/*.tar.gz dist/*.sha256 dist/SHA256SUMS \
+            --repo "${GITHUB_REPOSITORY}" --title "idbseq ${TAG}" --generate-notes "${prerelease[@]}"
+
+  image:
+    name: Docker image (GHCR)
+    needs: verify
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v5
+      # No QEMU: the Dockerfile cross-compiles on the build host and the final
+      # stage only copies files.
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  npm:
+    name: npm (idbseq)
+    needs: release
+    # Publishing (and npm provenance) only happens from the public repository.
+    if: github.repository == 'aevantec/idbseq'
+    runs-on: ubuntu-latest
+    environment: npm
+    permissions:
+      contents: read
+      id-token: write # npm trusted publishing and provenance
+    defaults:
+      run:
+        working-directory: sdk/node
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+          registry-url: https://registry.npmjs.org
+          cache: npm
+          cache-dependency-path: sdk/node/package-lock.json
+      - name: Use an npm that supports trusted publishing
+        run: npm install --global npm@^11.5.1
+      - name: Install, test and build
+        run: |
+          npm ci
+          npm test
+          npm run test:package
+      - name: Publish
+        env:
+          TAG: ${{ github.ref_name }}
+          # Only needed without an npm trusted publisher (see docs/releasing.md).
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          set -euo pipefail
+          # `private: true` guards against accidental local publishes; drop it here only.
+          npm pkg delete private
+          dist_tag=latest
+          if [[ "${TAG}" == *-* ]]; then dist_tag=next; fi
+          npm publish --provenance --access public --tag "${dist_tag}"
+
+  packagist:
+    name: Packagist (idbseq/idbseq)
+    needs: release
+    if: github.repository == 'aevantec/idbseq'
+    runs-on: ubuntu-latest
+    environment: packagist
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - name: Split sdk/php into the mirror repository
+        env:
+          TAG: ${{ github.ref_name }}
+          MIRROR_TOKEN: ${{ secrets.PHP_MIRROR_TOKEN }}
+        run: |
+          set -euo pipefail
+          git subtree split --prefix=sdk/php -b php-split
+          mirror="https://x-access-token:${MIRROR_TOKEN}@github.com/${PHP_MIRROR}.git"
+          git push "${mirror}" php-split:refs/heads/main
+          git push "${mirror}" "php-split:refs/tags/${TAG}"
+      - name: Ask Packagist to update
+        env:
+          PACKAGIST_USERNAME: ${{ secrets.PACKAGIST_USERNAME }}
+          PACKAGIST_TOKEN: ${{ secrets.PACKAGIST_TOKEN }}
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error -X POST \
+            -H 'Content-Type: application/json' \
+            "https://packagist.org/api/update-package?username=${PACKAGIST_USERNAME}&apiToken=${PACKAGIST_TOKEN}" \
+            -d "{\"repository\":{\"url\":\"https://github.com/${PHP_MIRROR}\"}}"
