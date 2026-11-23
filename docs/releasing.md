@@ -90,8 +90,15 @@ site in `docs/` and checks links on every change. In `aevantec/idbseq` it also
 deploys to GitHub Pages on each `v*` tag, and on demand from `main`
 (**Actions → Docs → Run workflow**), at `https://aevantec.github.io/idbseq/`.
 
-One-time setup: **Settings → Pages → Build and deployment → Source: GitHub
-Actions**. The workflow creates the `github-pages` environment on its first run.
+One-time setup:
+
+1. **Settings → Pages → Build and deployment → Source: GitHub Actions**. This
+   creates the `github-pages` environment, which lets only `main` deploy.
+2. Let release tags deploy too: **Settings → Environments → github-pages →
+   Deployment branches and tags → Add deployment branch or tag rule**, type
+   **Tag**, pattern `v*`. Without it, the deploy job of every tag's run is
+   rejected ("not allowed to deploy to github-pages due to environment
+   protection rules") and the site stays at the last manual deploy.
 
 Custom domain (optional, e.g. `idbseq.dev`):
 
