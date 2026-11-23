@@ -5,15 +5,15 @@ not public issues.
 
 ## Workflow
 
-
 1. Open an issue first for anything bigger than a small fix, so the approach can be agreed.
 2. Branch from `main` (`feat/…`, `fix/…`, `docs/…`).
 3. Open a pull request against `main`. `main` is protected: the **CI** and **SDKs**
-   workflows must pass and a maintainer must approve before it merges.
+   workflows must pass before a maintainer merges it.
 4. Commits follow `<type>: <description>` with types `feat`, `fix`, `refactor`, `docs`,
-   `test`, `chore`, `perf`, `ci`, and no scope (`feat: …`, not `feat(api): …`). Merges
-   and reverts follow it too: prefer fast-forward or squash merges, and write reverts as,
-   for example, `docs: revert the IdbSeq rename in READMEs`. CI checks every new
+   `test`, `chore`, `perf`, `ci`, and no scope (`feat: …`, not `feat(api): …`). Pull
+   requests are squash-merged, so the pull request title becomes the commit subject and
+   follows the format too; write reverts as, for example,
+   `docs: revert the IdbSeq rename in READMEs`. CI checks every new
    commit; to check locally before committing, run once per clone:
 
    ```bash
