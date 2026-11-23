@@ -1,19 +1,19 @@
 # idbseq (CLI)
 
 Command-line client for the idbseq HTTP API ([`docs/API.md`](../../docs/API.md)).
-Binary name: `idbseq`.
+Binary name: `idbseq`. Full documentation: [aevantec.github.io/idbseq/](https://aevantec.github.io/idbseq/).
 
 ```sh
 export IDBSEQ_URL=http://127.0.0.1:7878 IDBSEQ_KEY=idb_k7f3a9c2_…
 
-idbseq next orders                     # 1044
-idbseq next orders --count 100         # 1045..1144 (count 100, step 1)
+idbseq next orders             # 1044
+idbseq next orders --count 100 # 1045..1144 (count 100, step 1)
 idbseq last orders
 idbseq collections list --prefix eu. --all
 idbseq collections create invoices --start 1000 --step 10
 idbseq --json collections info invoices
 
-idbseq login                           # admin; password prompt, or first line of stdin
+idbseq login # admin; password prompt, or first line of stdin
 idbseq keys create billing --scope read,generate --collection 'eu.*'
 idbseq collections create tickets --protected
 idbseq reset tickets --value 1 --allow-rewind

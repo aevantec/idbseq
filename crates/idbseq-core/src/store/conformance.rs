@@ -55,6 +55,40 @@ macro_rules! sequence_store_conformance {
             idempotent_retry_on_a_block_collection_replays_the_original_range,
         );
     };
+    // Every check but the 2,000-ID concurrency test, for stores that pay a
+    // file open per call (`SharedFileStore`); they test concurrency themselves.
+    ($factory:expr, without_heavy_concurrency) => {
+        sequence_store_conformance!(@tests $factory;
+            create_then_get_returns_the_collection,
+            create_with_a_taken_name_fails_with_already_exists,
+            get_unknown_fails_with_not_found,
+            delete_removes_the_collection_and_returns_it,
+            delete_unknown_fails_with_not_found,
+            recreated_collection_starts_again_from_start,
+            first_advance_returns_start,
+            advance_continues_by_step,
+            batch_advance_returns_a_contiguous_range,
+            advance_up_to_max_succeeds,
+            advance_past_max_fails_and_does_not_move_the_counter,
+            advance_past_the_id_range_fails_with_exhausted,
+            advance_unknown_fails_with_not_found,
+            advance_leaves_other_collections_untouched,
+            list_is_sorted_by_name_and_paginated,
+            list_filters_by_prefix_and_counts_the_total,
+            list_of_an_empty_store_is_empty,
+            update_replaces_the_collection_and_returns_before_and_after,
+            failed_update_leaves_the_collection_unchanged,
+            update_unknown_fails_with_not_found,
+            idempotent_retry_replays_the_original_range,
+            reused_idempotency_key_for_another_request_fails,
+            expired_idempotency_key_issues_new_ids,
+            purge_removes_only_expired_idempotency_records,
+            block_durability_issues_contiguous_ids_and_reports_the_last_issued,
+            reset_of_a_block_collection_moves_the_counter,
+            deleted_block_collection_starts_again_from_start,
+            idempotent_retry_on_a_block_collection_replays_the_original_range,
+                );
+    };
     (@tests $factory:expr; $($check:ident),+ $(,)?) => {
         $(
             #[test]

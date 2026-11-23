@@ -1,4 +1,4 @@
-import { IdbseqError, IdbseqNetworkError } from './errors.js';
+import { IdbSeqError, IdbSeqNetworkError } from './errors.js';
 
 /** Retry settings for `generateId` / `generateIds`. */
 export interface RetryOptions {
@@ -48,13 +48,10 @@ export function resolveRetryPolicy(options: RetryOptions | false | undefined): R
 
 /** Network failures, 5xx and 429 are worth retrying; nothing else is. */
 export function isRetryable(error: unknown): boolean {
-  if (error instanceof IdbseqNetworkError) {
+  if (error instanceof IdbSeqNetworkError) {
     return true;
   }
-  return (
-    error instanceof IdbseqError &&
-    (error.status >= HTTP_SERVER_ERROR || error.status === HTTP_TOO_MANY_REQUESTS)
-  );
+  return error instanceof IdbSeqError && (error.status >= HTTP_SERVER_ERROR || error.status === HTTP_TOO_MANY_REQUESTS);
 }
 
 /**
@@ -64,7 +61,7 @@ export function isRetryable(error: unknown): boolean {
 export function retryDelayMs(
   policy: RetryPolicy,
   attempt: number,
-  error: IdbseqError,
+  error: IdbSeqError,
   random: () => number = Math.random,
 ): number | null {
   if (error.retryAfterSeconds !== null) {
@@ -86,7 +83,7 @@ export async function withRetry<T>(policy: RetryPolicy, operation: () => Promise
       if (attempt >= policy.maxAttempts || !isRetryable(error)) {
         throw error;
       }
-      const delay = retryDelayMs(policy, attempt, error as IdbseqError);
+      const delay = retryDelayMs(policy, attempt, error as IdbSeqError);
       if (delay === null) {
         throw error;
       }

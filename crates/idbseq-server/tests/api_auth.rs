@@ -301,3 +301,38 @@ async fn without_an_admin_login_is_forbidden_with_a_hint() {
         .to_bytes();
     assert!(String::from_utf8_lossy(&bytes).contains("idbseqd admin init"));
 }
+
+#[tokio::test]
+async fn an_admin_session_can_be_refreshed_but_not_a_key_or_a_revoked_session() {
+    let app = TestApp::new();
+    let admin = app.admin_token().await;
+    let key = app.key(&admin, &["read"], &[]).await;
+
+    let refreshed = app
+        .send(Method::POST, "/v1/auth/refresh", Some(&admin), None)
+        .await;
+    let with_key = app
+        .send(Method::POST, "/v1/auth/refresh", Some(&key), None)
+        .await;
+    let anonymous = app.send(Method::POST, "/v1/auth/refresh", None, None).await;
+    let _ = app
+        .send(Method::POST, "/v1/auth/logout", Some(&admin), None)
+        .await;
+    let after_logout = app
+        .send(Method::POST, "/v1/auth/refresh", Some(&admin), None)
+        .await;
+
+    assert_eq!(refreshed.status, StatusCode::OK, "{:?}", refreshed.body);
+    assert!(
+        refreshed.data()["expires_at"]
+            .as_str()
+            .is_some_and(|at| at.ends_with('Z'))
+    );
+    assert!(
+        refreshed.data().get("token").is_none(),
+        "the token does not change"
+    );
+    assert_eq!(with_key.status, StatusCode::FORBIDDEN);
+    assert_eq!(anonymous.status, StatusCode::UNAUTHORIZED);
+    assert_eq!(after_logout.status, StatusCode::UNAUTHORIZED);
+}

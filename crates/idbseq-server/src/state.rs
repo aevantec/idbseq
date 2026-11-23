@@ -1,6 +1,7 @@
 //! Shared application state.
 
 use std::num::NonZeroU32;
+use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, SystemTime};
@@ -8,15 +9,21 @@ use std::time::{Duration, SystemTime};
 use governor::clock::{Clock, DefaultClock};
 use governor::{DefaultKeyedRateLimiter, Quota, RateLimiter};
 use idbseq_core::engine::Engine;
-use idbseq_core::store::{RedbStore, SequenceStore};
+use idbseq_core::store::{DEFAULT_BUSY_TIMEOUT, RedbStore, SequenceStore, SharedFileStore};
 
 use crate::audit::{AuditLog, Event};
 use crate::auth::admin::AdminAuth;
 use crate::auth::keys::KeyStore;
+use crate::auth::setup::Setup;
 use crate::config::Config;
-use crate::db::{self, Db, DbError};
+use crate::db::{self, Db, DbError, db_err};
 use crate::error::ApiError;
 use crate::metrics::Metrics;
+
+/// Password checks (Argon2, about 19 MiB and tens of milliseconds each) that may
+/// run at once. More wait their turn, so a burst of logins cannot exhaust memory
+/// or the blocking threads that also issue IDs.
+pub const MAX_CONCURRENT_PASSWORD_CHECKS: usize = 2;
 
 #[derive(Clone)]
 pub struct AppState(Arc<Inner>);
@@ -26,11 +33,15 @@ struct Inner {
     database: Db,
     engine: Engine,
     admin: AdminAuth,
+    setup: Setup,
     keys: KeyStore,
     audit: AuditLog,
     metrics: Metrics,
     limiter: Option<DefaultKeyedRateLimiter<String>>,
+    password_checks: tokio::sync::Semaphore,
     ready: AtomicBool,
+    /// `idbseqd console`: the one token that is the admin. `None` on a server.
+    local_token: Option<String>,
 }
 
 impl std::fmt::Debug for AppState {
@@ -46,9 +57,32 @@ impl AppState {
     ///
     /// Server tables cannot be created or loaded.
     pub fn new(config: Config, store: &Arc<RedbStore>) -> Result<Self, DbError> {
-        let database: Db = store.database();
-        db::init(&database)?;
         let engine_store: Arc<dyn SequenceStore> = Arc::clone(store) as Arc<dyn SequenceStore>;
+        Self::build(config, engine_store, store.database(), None)
+    }
+
+    /// `idbseqd console`: IDs from `file`, opened for each call so other
+    /// processes can use it too; keys, sessions and the audit log only in
+    /// memory; and `token` as the admin.
+    ///
+    /// # Errors
+    ///
+    /// The in-memory tables cannot be created.
+    pub fn local_console(config: Config, file: &Path, token: String) -> Result<Self, DbError> {
+        let memory = ::redb::Database::builder()
+            .create_with_backend(::redb::backends::InMemoryBackend::new())
+            .map_err(db_err)?;
+        let store = Arc::new(SharedFileStore::new(file, DEFAULT_BUSY_TIMEOUT));
+        Self::build(config, store, Arc::new(memory), Some(token))
+    }
+
+    fn build(
+        config: Config,
+        engine_store: Arc<dyn SequenceStore>,
+        database: Db,
+        local_token: Option<String>,
+    ) -> Result<Self, DbError> {
+        db::init(&database)?;
         let engine = Engine::new(engine_store, config.engine_limits());
         let admin = AdminAuth::load(Arc::clone(&database), config.auth.session_ttl())?;
         let keys = KeyStore::load(Arc::clone(&database))?;
@@ -60,12 +94,21 @@ impl AppState {
             database,
             engine,
             admin,
+            setup: Setup::default(),
             keys,
             audit,
             metrics: Metrics::new(),
             limiter,
+            password_checks: tokio::sync::Semaphore::new(MAX_CONCURRENT_PASSWORD_CHECKS),
             ready: AtomicBool::new(true),
+            local_token,
         })))
+    }
+
+    /// In `idbseqd console`, the token that is the admin.
+    #[must_use]
+    pub fn local_token(&self) -> Option<&str> {
+        self.0.local_token.as_deref()
     }
 
     #[must_use]
@@ -87,6 +130,26 @@ impl AppState {
     #[must_use]
     pub fn admin(&self) -> &AdminAuth {
         &self.0.admin
+    }
+
+    /// Wait for a turn to check or hash a password (see
+    /// [`MAX_CONCURRENT_PASSWORD_CHECKS`]); the turn ends when the permit drops.
+    ///
+    /// # Errors
+    ///
+    /// Only if the semaphore were closed, which never happens.
+    pub async fn password_check(&self) -> Result<tokio::sync::SemaphorePermit<'_>, ApiError> {
+        self.0
+            .password_checks
+            .acquire()
+            .await
+            .map_err(|e| ApiError::internal(&e))
+    }
+
+    /// The first-run setup link, if one is pending (US-0047).
+    #[must_use]
+    pub fn setup(&self) -> &Setup {
+        &self.0.setup
     }
 
     #[must_use]

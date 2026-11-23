@@ -24,8 +24,8 @@ Until 1.0, only the latest minor release receives security fixes.
 ## Scope
 
 In scope: `idbseqd` (HTTP API, authentication, API keys, protected collections,
-the local admin socket, backup/restore), the `idbseq` CLI, the Node.js and PHP SDKs,
-and the published Docker image.
+the local admin socket, backup/restore), the `idbseq` CLI, the Node.js SDK and the
+published Docker image.
 
 Particularly interesting: issuing the same ID twice, bypassing authentication,
 scopes, collection allow-lists or collection protection, and leaking secrets

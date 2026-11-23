@@ -1,10 +1,11 @@
 # Using idbseq from other languages
 
-idbseq is plain HTTP/JSON, so any language can use it. Node.js and PHP have
-official SDKs ([`sdk/node`](../sdk/node), package `idbseq`;
-[`sdk/php`](../sdk/php), package `idbseq/idbseq`). For everything else this page
-shows curl, Python, Go and Java, plus how to generate a client from the OpenAPI
-contract. The wire contract itself is [API.md](API.md).
+idbseq is plain HTTP/JSON, so any language can use it. Node.js has an
+official SDK ([`sdk/node`](../sdk/node), package `idbseq`). For everything else
+this page shows curl, Python, Go and Java, plus how to generate a client from the OpenAPI
+contract. The wire contract itself is [API.md](API.md). From a terminal or a
+script, use the [`idbseq` CLI](#command-line-client-idbseq); AI agents can use
+the [MCP server](#ai-agents-mcp-server).
 
 Every example below is also a runnable program in [`examples/`](../examples):
 
@@ -32,7 +33,8 @@ example that ran failed:
 ```bash
 # Once, with a key that has the `manage` scope (or an admin token):
 curl -sS -X POST "$IDBSEQ_URL/v1/collections" \
-  -H "Authorization: Bearer $IDBSEQ_MANAGE_KEY" -H 'Content-Type: application/json' \
+  -H "Authorization: Bearer $IDBSEQ_MANAGE_KEY" \
+  -H 'Content-Type: application/json' \
   -d '{"name":"examples"}'
 
 IDBSEQ_URL=http://127.0.0.1:7878 IDBSEQ_KEY=idb_... examples/run.sh
@@ -54,16 +56,85 @@ IDBSEQ_URL=http://127.0.0.1:7878 IDBSEQ_KEY=idb_... examples/run.sh
 - Lists are paged: pass `meta.next_cursor` back as `?cursor=` until it is `null`.
   Optional `limit` (1-500, default 50) and `prefix` (only names starting with it).
 
+## Command-line client (`idbseq`)
+
+The `idbseq` binary ships in every release archive and in the Docker image. The
+server URL and credential come from `--url` / `--key`, else `IDBSEQ_URL` /
+`IDBSEQ_KEY`, else `~/.config/idbseq/config.toml`; after `idbseq login` the
+stored admin session is used unless a key is given.
+
+```bash
+export IDBSEQ_URL=http://127.0.0.1:7878 IDBSEQ_KEY=idb_...
+idbseq next orders             # 1044
+idbseq next orders --count 100 # 1045..1144
+idbseq --json collections info orders
+```
+
+**`next` takes IDs; `last` and `info` only look.** Each `next` moves the counter
+forward and hands you the ID for good: no other client will ever get it, even if
+you never use it, so the next call returns the following one. `last` and
+`collections info` show `next_id` without taking it. That value is only a
+preview: it is not reserved, and another client may take it first, so always
+use `next` for an ID you keep. If a `next` call fails and you retry it, pass the
+same `--idempotency-key` to get the original IDs back instead of using up new
+ones. The MCP tools work the same way: `next_id` takes IDs, `get_collection` and
+`list_collections` only read.
+
+| Command                                                                                                               | Does                                                                       |
+| --------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
+| `idbseq next NAME [--count N] [--idempotency-key K]`                                                                  | Take the next ID, or N at once; a repeated key returns the same IDs        |
+| `idbseq last NAME`                                                                                                    | Show the last issued ID and the next one, without using anything           |
+| `idbseq collections list [--limit N] [--cursor C] [--prefix P] [--all]`                                               | List collections; `--all` follows every page                               |
+| `idbseq collections create NAME [--start] [--step] [--max] [--durability strict\|block --block-size N] [--protected]` | Create a collection; `--protected` needs the admin                         |
+| `idbseq collections info NAME`                                                                                        | Show a collection's settings and its last and next ID                      |
+| `idbseq collections update NAME [--start] [--step] [--max] [--durability …] [--protected true\|false]`                | Change a collection's settings                                             |
+| `idbseq collections delete NAME [--yes]`                                                                              | Delete a collection and its counter (asks first)                           |
+| `idbseq reset NAME [--value N] [--allow-rewind] [--yes]`                                                              | Reset the counter (asks first); moving it backwards needs `--allow-rewind` |
+| `idbseq keys create NAME --scope S[,S] [--collection C[,C]]`                                                          | Create an API key (admin); the secret is shown once                        |
+| `idbseq keys list`                                                                                                    | List API keys, without secrets (admin)                                     |
+| `idbseq keys revoke ID [--yes]`                                                                                       | Revoke an API key (admin; asks first)                                      |
+| `idbseq login [--username admin]`                                                                                     | Log in as the admin and store the 15-minute session                        |
+| `idbseq logout`                                                                                                       | Revoke the stored session and remove it                                    |
+| `idbseq audit [--limit] [--cursor] [--collection] [--action]`                                                         | Show the audit log, newest first (admin)                                   |
+
+Every command also takes `--url`, `--key`, `--json` (print the response `data`
+as JSON; errors go to stderr) and `--timeout SECONDS` (default 30). `delete`,
+`reset` and `keys revoke` ask you to type the name or key id; `--yes` skips that.
+
+Exit codes, so scripts can tell failures apart (`idbseq --help` prints them too):
+
+| Code | Meaning                                                                  |
+| ---- | ------------------------------------------------------------------------ |
+| 0    | success                                                                  |
+| 1    | other errors: `INTERNAL`, unknown codes, unexpected responses, local I/O |
+| 2    | invalid arguments or configuration                                       |
+| 3    | network error: server unreachable or timed out                           |
+| 4    | `UNAUTHORIZED`                                                           |
+| 5    | `FORBIDDEN`                                                              |
+| 6    | `PROTECTED_COLLECTION`                                                   |
+| 7    | `COLLECTION_NOT_FOUND`, `NOT_FOUND`                                      |
+| 8    | `COLLECTION_EXISTS`                                                      |
+| 9    | `SEQUENCE_EXHAUSTED`                                                     |
+| 10   | `VALIDATION_FAILED`, `PAYLOAD_TOO_LARGE`                                 |
+| 11   | `RATE_LIMITED`                                                           |
+| 12   | aborted: confirmation declined                                           |
+
+The API call behind each command and the config file format are in the
+[CLI README](../crates/idbseq-cli/README.md). Server commands (`idbseqd`) are in
+[operations.md](operations.md#commands).
+
 ## curl
 
 ```bash
-KEY="$IDBSEQ_KEY"; URL="${IDBSEQ_URL:-http://127.0.0.1:7878}"
+KEY="$IDBSEQ_KEY"
+URL="${IDBSEQ_URL:-http://127.0.0.1:7878}"
 
 # Generate one ID  -> {"success":true,"data":{"id":1044},"error":null}
 curl -sS -X POST -H "Authorization: Bearer $KEY" -H 'Content-Length: 0' \
   "$URL/v1/collections/examples/next"
 
-# Generate a batch, safe to retry -> data: {"first":1045,"last":1047,"count":3,"step":1}
+# Generate a batch, safe to retry
+# -> data: {"first":1045,"last":1047,"count":3,"step":1}
 curl -sS -X POST -H "Authorization: Bearer $KEY" -H 'Content-Length: 0' \
   -H "Idempotency-Key: order-batch-7f3a" \
   "$URL/v1/collections/examples/next?count=3"
@@ -96,7 +167,8 @@ api() {
   if [[ "$status" != 2?? ]]; then
     code="$(json_str "$body" code)"
     message="$(json_str "$body" message)"
-    echo "error: ${code:-HTTP_${status}} (HTTP ${status}): ${message:-$body}" >&2
+    echo "error: ${code:-HTTP_${status}} (HTTP ${status}):" \
+      "${message:-$body}" >&2
     return 1
   fi
   printf '%s\n' "$body"
@@ -311,18 +383,26 @@ so the file carries a minimal one that reads integers as `long`; in a real proje
 use Jackson or Gson and map IDs to `long`.
 
 ```java
-Map<String, Object> call(String method, String pathAndQuery, Map<String, String> headers)
-        throws ApiException {
-    HttpRequest.Builder builder = HttpRequest.newBuilder(URI.create(baseUrl + pathAndQuery))
-            .timeout(TIMEOUT)
-            .header("Authorization", "Bearer " + key)
-            .header("Accept", "application/json")
-            .method(method, HttpRequest.BodyPublishers.noBody());
+Map<String, Object> call(
+    String method,
+    String pathAndQuery,
+    Map<String, String> headers
+) throws ApiException {
+    HttpRequest.Builder builder = HttpRequest.newBuilder(
+        URI.create(baseUrl + pathAndQuery)
+    )
+        .timeout(TIMEOUT)
+        .header("Authorization", "Bearer " + key)
+        .header("Accept", "application/json")
+        .method(method, HttpRequest.BodyPublishers.noBody());
     headers.forEach(builder::header);
 
     HttpResponse<String> response;
     try {
-        response = http.send(builder.build(), HttpResponse.BodyHandlers.ofString());
+        response = http.send(
+            builder.build(),
+            HttpResponse.BodyHandlers.ofString()
+        );
     } catch (IOException e) {
         throw new ApiException(0, "NETWORK_ERROR", e.toString());
     } catch (InterruptedException e) {
@@ -345,16 +425,26 @@ Map<String, Object> call(String method, String pathAndQuery, Map<String, String>
     }
     // Unknown or missing codes are still errors of this HTTP status.
     Map<String, Object> error = asMap(envelope.get("error"));
-    String code = error != null && error.get("code") instanceof String c ? c : "HTTP_" + status;
-    String message = error != null && error.get("message") instanceof String m ? m : "";
+    String code =
+        error != null && error.get("code") instanceof String c
+            ? c
+            : "HTTP_" + status;
+    String message =
+        error != null && error.get("message") instanceof String m ? m : "";
     throw new ApiException(status, code, message);
 }
 
 long generate(String name) throws ApiException {
-    return (Long) data("POST", collectionPath(name, "/next"), Map.of()).get("id");
+    return (Long) data("POST", collectionPath(name, "/next"), Map.of()).get(
+        "id"
+    );
 }
 
-Map<String, Object> generateBatch(String name, int count, String idempotencyKey) throws ApiException {
+Map<String, Object> generateBatch(
+    String name,
+    int count,
+    String idempotencyKey
+) throws ApiException {
     String path = collectionPath(name, "/next") + "?count=" + count;
     return data("POST", path, Map.of("Idempotency-Key", idempotencyKey));
 }
@@ -364,20 +454,55 @@ List<Map<String, Object>> listAll() throws ApiException {
     List<Map<String, Object>> all = new ArrayList<>();
     String cursor = null;
     do {
-        String query = "?limit=" + PAGE_LIMIT + (cursor == null ? "" : "&cursor=" + encode(cursor));
-        Map<String, Object> envelope = call("GET", "/v1/collections" + query, Map.of());
+        String query =
+            "?limit=" +
+            PAGE_LIMIT +
+            (cursor == null ? "" : "&cursor=" + encode(cursor));
+        Map<String, Object> envelope = call(
+            "GET",
+            "/v1/collections" + query,
+            Map.of()
+        );
         if (!(envelope.get("data") instanceof List<?> page)) {
-            throw new ApiException(200, "DECODE_ERROR", "expected an array in `data`");
+            throw new ApiException(
+                200,
+                "DECODE_ERROR",
+                "expected an array in `data`"
+            );
         }
         for (Object item : page) {
             all.add(asMap(item));
         }
         Map<String, Object> meta = asMap(envelope.get("meta"));
-        cursor = meta != null && meta.get("next_cursor") instanceof String next ? next : null;
+        cursor =
+            meta != null && meta.get("next_cursor") instanceof String next
+                ? next
+                : null;
     } while (cursor != null);
     return all;
 }
 ```
+
+## AI agents (MCP server)
+
+[`sdk/mcp`](../sdk/mcp) (npm package `idbseq-mcp`) is a stdio
+[MCP](https://modelcontextprotocol.io) server built on the Node SDK. An agent in
+Claude Code, Claude Desktop or any other MCP client takes IDs with one tool call,
+and several agents at once never collide:
+
+```bash
+idbseq keys create my-agent --scope generate --scope read --collection tickets
+claude mcp add idbseq \
+  --env IDBSEQ_URL=http://127.0.0.1:7878 \
+  --env IDBSEQ_KEY=idb_... \
+  -- npx -y idbseq-mcp
+```
+
+It offers `next_id` (one ID or a batch, with an optional idempotency key),
+`list_collections` and `get_collection`; `create_collection` only with
+`--allow-create`; never reset or delete. Like every client it needs an API key:
+give it `generate` and `read` and a collection allow-list. Setup for other
+clients is in its [README](../sdk/mcp/README.md).
 
 ## Generating a client from OpenAPI
 
@@ -394,20 +519,26 @@ generator version so regenerating is reproducible.
 
 ```bash
 # Docker: mount the repo at /local
-gen() { docker run --rm -u "$(id -u):$(id -g)" -v "$PWD:/local" openapitools/openapi-generator-cli:v7.10.0 "$@"; }
+gen() {
+  docker run --rm -u "$(id -u):$(id -g)" -v "$PWD:/local" \
+    openapitools/openapi-generator-cli:v7.10.0 "$@"
+}
 
 gen generate -i /local/api/openapi.json -g python -o /local/clients/python \
   --additional-properties=packageName=idbseq_client
 gen generate -i /local/api/openapi.json -g go -o /local/clients/go \
   --additional-properties=packageName=idbseq
 gen generate -i /local/api/openapi.json -g java -o /local/clients/java \
-  --library native --additional-properties=groupId=com.example,artifactId=idbseq-client,invokerPackage=com.example.idbseq
-gen generate -i /local/api/openapi.json -g typescript-fetch -o /local/clients/ts \
-  --additional-properties=supportsES6=true
+  --library native \
+  --additional-properties=groupId=com.example,artifactId=idbseq-client \
+  --additional-properties=invokerPackage=com.example.idbseq
+gen generate -i /local/api/openapi.json -g typescript-fetch \
+  -o /local/clients/ts --additional-properties=supportsES6=true
 
 # npm wrapper: same arguments, local paths
 npx @openapitools/openapi-generator-cli version-manager set 7.10.0
-npx @openapitools/openapi-generator-cli generate -i api/openapi.json -g typescript-fetch -o clients/ts
+npx @openapitools/openapi-generator-cli generate \
+  -i api/openapi.json -g typescript-fetch -o clients/ts
 ```
 
 Things to know about generated clients:

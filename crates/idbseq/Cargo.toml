@@ -1,0 +1,25 @@
+[package]
+name = "idbseq"
+description = "Embedded ID sequences in one portable file: never the same ID twice, no server needed"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+homepage.workspace = true
+license.workspace = true
+readme = "README.md"
+keywords = ["sequence", "id", "embedded", "counter", "database"]
+categories = ["database-implementations"]
+
+[dependencies]
+idbseq-core.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+time = { version = "0.3.55", features = ["formatting"] }
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true

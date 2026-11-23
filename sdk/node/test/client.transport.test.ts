@@ -1,10 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import {
-  IdbseqClient,
-  IdbseqNetworkError,
-  UnexpectedResponseError,
-  UnknownCodeError,
-} from '../src/index.js';
+import { IdbSeqClient, IdbSeqNetworkError, UnexpectedResponseError, UnknownCodeError } from '../src/index.js';
 import { MockServer, ok } from './helpers/mock-server.js';
 
 let server: MockServer;
@@ -21,7 +16,7 @@ beforeEach(() => {
   server.reset();
 });
 
-const noRetry = (): IdbseqClient => new IdbseqClient({ url: server.url, apiKey: 'k', retry: false });
+const noRetry = (): IdbSeqClient => new IdbSeqClient({ url: server.url, apiKey: 'k', retry: false });
 
 describe('client options', () => {
   it('defaults to the local server URL', async () => {
@@ -33,7 +28,7 @@ describe('client options', () => {
     };
 
     // Act
-    await new IdbseqClient({ fetch: fakeFetch }).generateId('orders');
+    await new IdbSeqClient({ fetch: fakeFetch }).generateId('orders');
 
     // Assert
     expect(seen).toEqual(['http://127.0.0.1:7878/v1/collections/orders/next']);
@@ -46,17 +41,17 @@ describe('client options', () => {
       return new Response('{"success":true,"data":{"last_id":null,"next_id":1},"error":null}');
     };
 
-    await new IdbseqClient({ url: 'https://ids.example.com/idbseq/', fetch: fakeFetch }).lastId('a');
+    await new IdbSeqClient({ url: 'https://ids.example.com/idbseq/', fetch: fakeFetch }).lastId('a');
 
     expect(seen).toEqual(['https://ids.example.com/idbseq/v1/collections/a/last']);
   });
 
   it.each(['not a url', 'ftp://example.com'])('rejects the invalid URL %s', (url) => {
-    expect(() => new IdbseqClient({ url })).toThrow(TypeError);
+    expect(() => new IdbSeqClient({ url })).toThrow(TypeError);
   });
 
   it.each([0, -1, Number.POSITIVE_INFINITY])('rejects the timeout %s', (timeoutMs) => {
-    expect(() => new IdbseqClient({ timeoutMs })).toThrow(RangeError);
+    expect(() => new IdbSeqClient({ timeoutMs })).toThrow(RangeError);
   });
 });
 
@@ -67,7 +62,9 @@ describe('response handling', () => {
       json: { success: false, data: null, error: { code: 'TEAPOT', message: 'short and stout' } },
     });
 
-    const error = await noRetry().getCollection('a').catch((e: unknown) => e);
+    const error = await noRetry()
+      .getCollection('a')
+      .catch((e: unknown) => e);
 
     expect(error).toBeInstanceOf(UnknownCodeError);
     expect((error as UnknownCodeError).status).toBe(418);
@@ -77,7 +74,9 @@ describe('response handling', () => {
   it('reports a non-JSON body as UnexpectedResponseError', async () => {
     server.reply({ status: 502, raw: '<html>Bad Gateway</html>' });
 
-    const error = await noRetry().getCollection('a').catch((e: unknown) => e);
+    const error = await noRetry()
+      .getCollection('a')
+      .catch((e: unknown) => e);
 
     expect(error).toBeInstanceOf(UnexpectedResponseError);
     expect((error as UnexpectedResponseError).status).toBe(502);
@@ -93,7 +92,9 @@ describe('response handling', () => {
   it('reports data of the wrong shape as UnexpectedResponseError', async () => {
     server.reply(ok({ id: 'one' }));
 
-    const error = await noRetry().generateId('a').catch((e: unknown) => e);
+    const error = await noRetry()
+      .generateId('a')
+      .catch((e: unknown) => e);
 
     expect(error).toBeInstanceOf(UnexpectedResponseError);
     expect((error as Error).message).toContain('id');
@@ -113,7 +114,9 @@ describe('response handling', () => {
       headers: { 'retry-after': inTenSeconds },
     });
 
-    const error = await noRetry().getCollection('a').catch((e: unknown) => e);
+    const error = await noRetry()
+      .getCollection('a')
+      .catch((e: unknown) => e);
 
     expect((error as UnknownCodeError).retryAfterSeconds).toBeGreaterThanOrEqual(8);
     expect((error as UnknownCodeError).retryAfterSeconds).toBeLessThanOrEqual(10);
@@ -126,22 +129,24 @@ describe('response handling', () => {
       headers: { 'retry-after': 'soon' },
     });
 
-    const error = await noRetry().getCollection('a').catch((e: unknown) => e);
+    const error = await noRetry()
+      .getCollection('a')
+      .catch((e: unknown) => e);
 
     expect((error as UnknownCodeError).retryAfterSeconds).toBeNull();
   });
 
-  it('times out slow requests with IdbseqNetworkError', async () => {
+  it('times out slow requests with IdbSeqNetworkError', async () => {
     // Arrange
-    const client = new IdbseqClient({ url: server.url, timeoutMs: 50, retry: false });
+    const client = new IdbSeqClient({ url: server.url, timeoutMs: 50, retry: false });
     server.reply({ ...ok({ id: 1 }), delayMs: 500 });
 
     // Act
     const error = await client.generateId('a').catch((e: unknown) => e);
 
     // Assert
-    expect(error).toBeInstanceOf(IdbseqNetworkError);
-    expect((error as IdbseqNetworkError).message).toContain('timed out');
-    expect((error as IdbseqNetworkError).code).toBe('NETWORK_ERROR');
+    expect(error).toBeInstanceOf(IdbSeqNetworkError);
+    expect((error as IdbSeqNetworkError).message).toContain('timed out');
+    expect((error as IdbSeqNetworkError).code).toBe('NETWORK_ERROR');
   });
 });

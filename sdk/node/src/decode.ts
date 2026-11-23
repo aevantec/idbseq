@@ -16,7 +16,7 @@ import type {
 
 type Fields = Readonly<Record<string, unknown>>;
 
-function record(value: unknown, path: string): Fields {
+export function record(value: unknown, path: string): Fields {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) {
     throw new TypeError(`expected an object at ${path}`);
   }
@@ -30,7 +30,7 @@ function list(value: unknown, path: string): readonly unknown[] {
   return value;
 }
 
-function str(value: unknown, path: string): string {
+export function str(value: unknown, path: string): string {
   if (typeof value !== 'string') {
     throw new TypeError(`expected a string at ${path}`);
   }

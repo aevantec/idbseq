@@ -1,23 +1,25 @@
 //! The single admin account: password, sessions and login lockout (US-0021, US-0022).
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::HashMap;
 use std::sync::{Mutex, PoisonError, RwLock};
 use std::time::{Duration, SystemTime};
 
 use argon2::{Argon2, PasswordHasher, PasswordVerifier};
 use serde::{Deserialize, Serialize};
 
+use super::lockout::{Locked, Lockouts};
 use super::secrets::{constant_time_eq, random_token, sha256_hex};
 use crate::db::{self, ADMIN, Db, DbError, SESSIONS};
 
 /// The admin's username.
 pub const ADMIN_USERNAME: &str = "admin";
 /// Shortest allowed admin password, in characters.
-pub const MIN_PASSWORD_LEN: usize = 12;
-/// Failed logins allowed within [`LOCKOUT_WINDOW`] before the account locks.
-pub const MAX_FAILED_LOGINS: usize = 5;
-pub const LOCKOUT_WINDOW: Duration = Duration::from_mins(15);
-pub const LOCKOUT_DURATION: Duration = Duration::from_mins(15);
+pub const MIN_PASSWORD_LEN: usize = 8;
+pub use super::lockout::{
+    LOCKOUT_DURATION, LOCKOUT_WINDOW, MAX_FAILED_LOGINS, MAX_FAILED_LOGINS_GLOBAL,
+};
+/// A session can be refreshed, but never past this long after sign-in.
+pub const MAX_SESSION_LIFETIME: Duration = Duration::from_hours(12);
 
 const ADMIN_KEY: &str = "admin";
 
@@ -30,6 +32,10 @@ struct AdminRecord {
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 struct SessionRecord {
     expires_at: SystemTime,
+    /// When the session began, for [`MAX_SESSION_LIFETIME`]. Absent in
+    /// records written before sessions could be refreshed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    started_at: Option<SystemTime>,
 }
 
 /// Why an admin operation failed.
@@ -43,16 +49,14 @@ pub enum AdminError {
     WeakPassword,
     #[error("invalid username or password")]
     InvalidCredentials,
+    /// Refused without checking the password: too many recent failures. Answered
+    /// like wrong credentials.
+    #[error("invalid username or password")]
+    Locked,
     #[error(transparent)]
     Storage(#[from] DbError),
     #[error("password hashing failed: {0}")]
     Hash(String),
-}
-
-#[derive(Debug, Default)]
-struct Lockout {
-    failures: VecDeque<SystemTime>,
-    locked_until: Option<SystemTime>,
 }
 
 /// Admin account and session state. Sessions are cached in memory and persisted
@@ -60,7 +64,7 @@ struct Lockout {
 pub struct AdminAuth {
     db: Db,
     sessions: RwLock<HashMap<String, SessionRecord>>,
-    lockout: Mutex<Lockout>,
+    lockouts: Mutex<Lockouts>,
     session_ttl: Duration,
 }
 
@@ -102,7 +106,7 @@ impl AdminAuth {
         Ok(Self {
             db,
             sessions: RwLock::new(sessions),
-            lockout: Mutex::new(Lockout::default()),
+            lockouts: Mutex::new(Lockouts::default()),
             session_ttl,
         })
     }
@@ -140,6 +144,9 @@ impl AdminAuth {
     pub fn set_password(&self, password: &str, now: SystemTime) -> Result<(), AdminError> {
         self.store_password(password, now)?;
         self.revoke_all_sessions()?;
+        // A new password makes earlier guesses moot, and a local reset is the way
+        // back in for an admin locked out from every address.
+        self.lockouts().clear();
         Ok(())
     }
 
@@ -167,27 +174,28 @@ impl AdminAuth {
             .is_ok())
     }
 
-    /// Sign in. Wrong username or password and a locked account give the same error.
+    /// Sign in from `client` (see [`super::lockout::client_key`]). Wrong
+    /// credentials and a lockout look the same to the caller.
     ///
     /// # Errors
     ///
-    /// `InvalidCredentials`, `NotInitialized` or storage failure.
+    /// `InvalidCredentials`, `Locked`, `NotInitialized` or storage failure.
     pub fn login(
         &self,
+        client: &str,
         username: &str,
         password: &str,
         now: SystemTime,
     ) -> Result<Session, AdminError> {
-        if self.is_locked(now) {
-            return Err(AdminError::InvalidCredentials);
-        }
+        self.lockouts()
+            .begin(client, now)
+            .map_err(|Locked| AdminError::Locked)?;
         let password_ok = self.verify_password(password)?;
         let username_ok = constant_time_eq(username, ADMIN_USERNAME);
         if !(password_ok && username_ok) {
-            self.record_failure(now);
             return Err(AdminError::InvalidCredentials);
         }
-        self.clear_failures();
+        self.lockouts().succeeded(client, now);
         self.start_session(now)
     }
 
@@ -195,6 +203,7 @@ impl AdminAuth {
         let token = random_token();
         let record = SessionRecord {
             expires_at: now + self.session_ttl,
+            started_at: Some(now),
         };
         let hash = sha256_hex(&token);
         db::write(&self.db, SESSIONS, &[(hash.as_str(), &record)], &[])?;
@@ -222,9 +231,46 @@ impl AdminAuth {
     ///
     /// Storage failure.
     pub fn logout(&self, session_hash: &str) -> Result<(), DbError> {
+        // Held across the write so a concurrent refresh cannot write it back.
+        let mut sessions = self.sessions_mut();
         db::write::<SessionRecord>(&self.db, SESSIONS, &[], &[session_hash])?;
-        self.sessions_mut().remove(session_hash);
+        sessions.remove(session_hash);
         Ok(())
+    }
+
+    /// Extend a live session to a full TTL from `now`, but never past
+    /// [`MAX_SESSION_LIFETIME`] after sign-in. Returns the new expiry, or
+    /// `None` if the session is unknown or has expired.
+    ///
+    /// # Errors
+    ///
+    /// Storage failure.
+    pub fn refresh(
+        &self,
+        session_hash: &str,
+        now: SystemTime,
+    ) -> Result<Option<SystemTime>, DbError> {
+        let mut sessions = self.sessions_mut();
+        let Some(current) = sessions
+            .get(session_hash)
+            .filter(|s| s.expires_at > now)
+            .copied()
+        else {
+            return Ok(None);
+        };
+        let started = current
+            .started_at
+            .or_else(|| current.expires_at.checked_sub(self.session_ttl))
+            .unwrap_or(now);
+        let limit = started + MAX_SESSION_LIFETIME.max(self.session_ttl);
+        let updated = SessionRecord {
+            expires_at: (now + self.session_ttl).min(limit).max(current.expires_at),
+            started_at: Some(started),
+        };
+        // Held across the write so it cannot race a logout or password change.
+        db::write(&self.db, SESSIONS, &[(session_hash, &updated)], &[])?;
+        sessions.insert(session_hash.to_owned(), updated);
+        Ok(Some(updated.expires_at))
     }
 
     /// Revoke every session (password change).
@@ -270,31 +316,8 @@ impl AdminAuth {
             .unwrap_or_else(PoisonError::into_inner)
     }
 
-    fn lockout(&self) -> std::sync::MutexGuard<'_, Lockout> {
-        self.lockout.lock().unwrap_or_else(PoisonError::into_inner)
-    }
-
-    fn is_locked(&self, now: SystemTime) -> bool {
-        self.lockout().locked_until.is_some_and(|until| now < until)
-    }
-
-    fn record_failure(&self, now: SystemTime) {
-        let mut lockout = self.lockout();
-        let window_start = now
-            .checked_sub(LOCKOUT_WINDOW)
-            .unwrap_or(SystemTime::UNIX_EPOCH);
-        lockout.failures.retain(|at| *at > window_start);
-        lockout.failures.push_back(now);
-        if lockout.failures.len() >= MAX_FAILED_LOGINS {
-            lockout.locked_until = Some(now + LOCKOUT_DURATION);
-            lockout.failures.clear();
-        }
-    }
-
-    fn clear_failures(&self) {
-        let mut lockout = self.lockout();
-        lockout.failures.clear();
-        lockout.locked_until = None;
+    fn lockouts(&self) -> std::sync::MutexGuard<'_, Lockouts> {
+        self.lockouts.lock().unwrap_or_else(PoisonError::into_inner)
     }
 }
 

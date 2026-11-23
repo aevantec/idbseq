@@ -15,10 +15,8 @@ use crate::state::AppState;
 /// Liveness: the process is up.
 #[utoipa::path(get, path = "/healthz", tag = "health",
     responses((status = 200, description = "Up", body = Envelope<HealthDto>)))]
-pub async fn healthz() -> Reply<HealthDto> {
-    Reply::ok(HealthDto {
-        status: "ok".into(),
-    })
+pub async fn healthz(State(state): State<AppState>) -> Reply<HealthDto> {
+    Reply::ok(HealthDto::new("ok", &state))
 }
 
 /// Readiness: the store is open and the server is not shutting down.
@@ -26,10 +24,7 @@ pub async fn healthz() -> Reply<HealthDto> {
     responses((status = 200, description = "Ready", body = Envelope<HealthDto>), (status = 503, description = "Not ready")))]
 pub async fn readyz(State(state): State<AppState>) -> Response {
     if state.is_ready() {
-        return Reply::ok(HealthDto {
-            status: "ready".into(),
-        })
-        .into_response();
+        return Reply::ok(HealthDto::new("ready", &state)).into_response();
     }
     let body = Envelope::<()>::failure(Code::Internal, "not ready".into(), None);
     (StatusCode::SERVICE_UNAVAILABLE, Json(body)).into_response()

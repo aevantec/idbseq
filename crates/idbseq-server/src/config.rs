@@ -1,7 +1,8 @@
 //! Server configuration: `idbseq.toml`, then environment overrides (US-0014).
 //!
 //! Lookup: the file named by `IDBSEQ_CONFIG`, else `./idbseq.toml` if present,
-//! else defaults. Then `IDBSEQ_BIND`, `IDBSEQ_DATA_DIR` and `IDBSEQ_LOG` override.
+//! else defaults. Then `IDBSEQ_BIND`, `IDBSEQ_DATA_DIR`, `IDBSEQ_LOG` and
+//! `IDBSEQ_UI` override.
 
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
@@ -28,6 +29,8 @@ pub struct Config {
     pub metrics: MetricsConfig,
     /// Serve Swagger UI at `/docs` (loads assets from a CDN). Off by default.
     pub swagger_ui: bool,
+    /// Serve the built-in admin console at `/ui/` (US-0046). Off by default.
+    pub ui: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -95,6 +98,7 @@ impl Default for Config {
             audit: AuditConfig::default(),
             metrics: MetricsConfig::default(),
             swagger_ui: false,
+            ui: false,
         }
     }
 }
@@ -210,12 +214,26 @@ impl Config {
             }
             None => self.bind,
         };
+        let ui = match env("IDBSEQ_UI") {
+            Some(value) => parse_flag(&value).ok_or_else(|| ConfigError::Env {
+                var: "IDBSEQ_UI",
+                reason: format!("expected true or false, got {value:?}"),
+            })?,
+            None => self.ui,
+        };
         Ok(Self {
             bind,
+            ui,
             data_dir: env("IDBSEQ_DATA_DIR").map_or(self.data_dir.clone(), PathBuf::from),
             log: env("IDBSEQ_LOG").unwrap_or_else(|| self.log.clone()),
             ..self
         })
+    }
+
+    /// This config with the admin console turned on (`idbseqd --ui`).
+    #[must_use]
+    pub fn with_ui(self) -> Self {
+        Self { ui: true, ..self }
     }
 
     #[must_use]
@@ -232,6 +250,15 @@ impl Config {
             max_batch: self.limits.max_batch,
             idempotency_ttl: Duration::from_secs(self.limits.idempotency_ttl_hours.max(1) * 3600),
         }
+    }
+}
+
+/// An on/off environment value: true/false, 1/0, yes/no or on/off, any case.
+fn parse_flag(value: &str) -> Option<bool> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "true" | "1" | "yes" | "on" => Some(true),
+        "false" | "0" | "no" | "off" => Some(false),
+        _ => None,
     }
 }
 
@@ -282,6 +309,34 @@ mod tests {
         assert_eq!(config.log, "warn");
         assert_eq!(config.limits.max_batch, 500);
         assert!(config.metrics.enabled);
+    }
+
+    #[test]
+    fn ui_is_turned_on_or_off_by_environment() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let file = dir.path().join("idbseq.toml");
+        std::fs::write(&file, "ui = true\n").expect("write");
+        let path = file.to_string_lossy().into_owned();
+        let load = |vars: &[(&str, &str)]| Config::load(&env_of(vars)).expect("load").ui;
+
+        assert!(!load(&[]));
+        assert!(load(&[("IDBSEQ_CONFIG", &path)]));
+        for on in ["true", "1", "yes", "on", "TRUE"] {
+            assert!(load(&[("IDBSEQ_UI", on)]), "{on}");
+        }
+        for off in ["false", "0", "no", "off"] {
+            assert!(
+                !load(&[("IDBSEQ_CONFIG", &path), ("IDBSEQ_UI", off)]),
+                "{off}"
+            );
+        }
+        assert!(matches!(
+            Config::load(&env_of(&[("IDBSEQ_UI", "maybe")])),
+            Err(ConfigError::Env {
+                var: "IDBSEQ_UI",
+                ..
+            })
+        ));
     }
 
     #[test]

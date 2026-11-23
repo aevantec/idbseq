@@ -45,6 +45,13 @@ async fn create_reports_every_invalid_field_and_duplicates() {
     let zero_step = app
         .collection(&admin, json!({"name": "ok", "step": 0}))
         .await;
+    // The contract's step is an int64: larger ones break typed clients.
+    let huge_step = app
+        .collection(
+            &admin,
+            json!({"name": "ok", "step": 9_223_372_036_854_775_808_u64}),
+        )
+        .await;
     let unknown_field = app
         .collection(&admin, json!({"name": "ok", "colour": "red"}))
         .await;
@@ -61,6 +68,10 @@ async fn create_reports_every_invalid_field_and_duplicates() {
     assert_eq!(
         zero_step.body["error"]["details"]["fields"]["step"],
         "must be greater than 0"
+    );
+    assert_eq!(
+        huge_step.body["error"]["details"]["fields"]["step"],
+        "must be at most 9223372036854775807"
     );
     assert_eq!(unknown_field.code(), "VALIDATION_FAILED");
     assert_eq!(

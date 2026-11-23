@@ -1,9 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import {
-  createApiError,
-  IdbseqNetworkError,
-  UnexpectedResponseError,
-} from '../src/errors.js';
+import { createApiError, IdbSeqNetworkError, UnexpectedResponseError } from '../src/errors.js';
 import { DEFAULT_RETRY, isRetryable, resolveRetryPolicy, retryDelayMs } from '../src/retry.js';
 
 const apiError = (status: number, code: string, retryAfterSeconds: number | null = null) =>
@@ -35,13 +31,13 @@ describe('resolveRetryPolicy', () => {
 
 describe('isRetryable', () => {
   it('retries network failures, 5xx and 429', () => {
-    expect(isRetryable(new IdbseqNetworkError('down'))).toBe(true);
+    expect(isRetryable(new IdbSeqNetworkError('down'))).toBe(true);
     expect(isRetryable(apiError(500, 'INTERNAL'))).toBe(true);
     expect(isRetryable(apiError(503, 'SOMETHING'))).toBe(true);
     expect(isRetryable(apiError(429, 'RATE_LIMITED'))).toBe(true);
-    expect(
-      isRetryable(new UnexpectedResponseError({ message: 'bad gateway', status: 502, requestId: null })),
-    ).toBe(true);
+    expect(isRetryable(new UnexpectedResponseError({ message: 'bad gateway', status: 502, requestId: null }))).toBe(
+      true,
+    );
   });
 
   it('does not retry client errors or foreign errors', () => {

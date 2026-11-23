@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import {
-  IdbseqClient,
-  IdbseqNetworkError,
+  IdbSeqClient,
+  IdbSeqNetworkError,
   InternalError,
   RateLimitedError,
   SequenceExhaustedError,
@@ -12,7 +12,7 @@ const FAST_RETRY = { baseDelayMs: 1, maxDelayMs: 5 };
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
 let server: MockServer;
-let client: IdbseqClient;
+let client: IdbSeqClient;
 
 beforeAll(async () => {
   server = await MockServer.start();
@@ -24,7 +24,7 @@ afterAll(async () => {
 
 beforeEach(() => {
   server.reset();
-  client = new IdbseqClient({ url: server.url, apiKey: 'idb_k1_secret', retry: FAST_RETRY });
+  client = new IdbSeqClient({ url: server.url, apiKey: 'idb_k1_secret', retry: FAST_RETRY });
 });
 
 describe('generateId', () => {
@@ -116,7 +116,7 @@ describe('generateId', () => {
 
   it('stops after maxAttempts and throws the last error', async () => {
     // Arrange
-    const limited = new IdbseqClient({
+    const limited = new IdbSeqClient({
       url: server.url,
       apiKey: 'k',
       retry: { ...FAST_RETRY, maxAttempts: 2 },
@@ -133,11 +133,11 @@ describe('generateId', () => {
     expect(server.requests).toHaveLength(2);
   });
 
-  it('throws IdbseqNetworkError when the server never answers', async () => {
-    const noRetry = new IdbseqClient({ url: server.url, apiKey: 'k', retry: false });
+  it('throws IdbSeqNetworkError when the server never answers', async () => {
+    const noRetry = new IdbSeqClient({ url: server.url, apiKey: 'k', retry: false });
     server.reply({ drop: true });
 
-    await expect(noRetry.generateId('orders')).rejects.toBeInstanceOf(IdbseqNetworkError);
+    await expect(noRetry.generateId('orders')).rejects.toBeInstanceOf(IdbSeqNetworkError);
     expect(server.requests).toHaveLength(1);
   });
 

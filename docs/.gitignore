@@ -1,0 +1,4 @@
+.vitepress/cache/
+.vitepress/dist/
+# Copied from ../api/openapi.json by .vitepress/scripts/copy-openapi.mjs
+public/openapi.json

@@ -6,6 +6,9 @@ use std::fmt;
 /// Longest allowed collection name, in characters.
 pub const MAX_NAME_LEN: usize = 64;
 
+/// Longest allowed idempotency key, in bytes.
+pub const MAX_IDEMPOTENCY_KEY_LEN: usize = 255;
+
 /// Largest block size for `block` durability.
 pub const MAX_BLOCK_SIZE: u32 = 1_000_000;
 
@@ -79,6 +82,15 @@ impl fmt::Display for ValidationErrors {
 }
 
 impl std::error::Error for ValidationErrors {}
+
+/// Why `key` is not a valid idempotency key, or `None` if it is: 1–255
+/// visible ASCII characters, the same in a server and an embedded file.
+#[must_use]
+pub fn idempotency_key_problem(key: &str) -> Option<&'static str> {
+    let is_visible = key.bytes().all(|byte| byte.is_ascii_graphic());
+    (key.is_empty() || key.len() > MAX_IDEMPOTENCY_KEY_LEN || !is_visible)
+        .then_some("must be 1-255 visible ASCII characters")
+}
 
 /// Why `name` is not a valid collection name, or `None` if it is.
 ///

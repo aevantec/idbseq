@@ -44,13 +44,22 @@ impl TestApp {
     }
 
     pub fn with_config(edit: impl FnOnce(Config) -> Config) -> Self {
+        Self::build(edit, Some(ADMIN_PASSWORD))
+    }
+
+    /// A fresh server with no admin account yet (first-run setup).
+    pub fn without_admin(edit: impl FnOnce(Config) -> Config) -> Self {
+        Self::build(edit, None)
+    }
+
+    fn build(edit: impl FnOnce(Config) -> Config, admin_password: Option<&str>) -> Self {
         let dir = tempfile::tempdir().expect("temp dir");
         let config = edit(Config {
             data_dir: dir.path().to_path_buf(),
             ..Config::default()
         });
         let (state, store) =
-            idbseq_server::serve::open_state(&config, Some(ADMIN_PASSWORD)).expect("open state");
+            idbseq_server::serve::open_state(&config, admin_password).expect("open state");
         Self {
             router: idbseq_server::app::router(state.clone()),
             state,

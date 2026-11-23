@@ -8,5 +8,8 @@ examples
 docs
 **/*.redb
 **/node_modules
+crates/idbseq-server/ui/src
+crates/idbseq-server/ui/e2e
+crates/idbseq-server/ui/tests
 Dockerfile
 .dockerignore

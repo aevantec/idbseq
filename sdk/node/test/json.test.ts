@@ -40,9 +40,7 @@ describe('parseJson', () => {
 
 describe('stringifyJson', () => {
   it('writes bigints as plain JSON numbers', () => {
-    expect(stringifyJson({ value: 9223372036854775807n, n: 1 })).toBe(
-      '{"value":9223372036854775807,"n":1}',
-    );
+    expect(stringifyJson({ value: 9223372036854775807n, n: 1 })).toBe('{"value":9223372036854775807,"n":1}');
   });
 
   it('round-trips through parseJson without losing precision', () => {

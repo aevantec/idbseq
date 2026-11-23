@@ -2,7 +2,7 @@
 
 use axum::http::{HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
-use idbseq_core::store::StoreError;
+use idbseq_core::store::{OpenError, StoreError};
 use serde_json::{Value, json};
 
 use crate::envelope::Envelope;
@@ -23,6 +23,10 @@ pub enum Code {
     PayloadTooLarge,
     RateLimited,
     Internal,
+    /// `idbseqd console`: another process held the file for the whole busy timeout.
+    DatabaseBusy,
+    /// `idbseqd console`: the file cannot be opened.
+    DatabaseUnavailable,
 }
 
 impl Code {
@@ -38,6 +42,7 @@ impl Code {
             Self::PayloadTooLarge => StatusCode::PAYLOAD_TOO_LARGE,
             Self::RateLimited => StatusCode::TOO_MANY_REQUESTS,
             Self::Internal => StatusCode::INTERNAL_SERVER_ERROR,
+            Self::DatabaseBusy | Self::DatabaseUnavailable => StatusCode::SERVICE_UNAVAILABLE,
         }
     }
 }
@@ -130,6 +135,27 @@ impl From<StoreError> for ApiError {
             StoreError::Invalid(errors) => Self::new(Code::ValidationFailed, errors.to_string())
                 .with_details(json!({ "fields": errors.fields() })),
             StoreError::Backend(detail) => Self::internal(&detail),
+            StoreError::Busy { waited, .. } => Self {
+                retry_after_secs: Some(1),
+                ..Self::new(
+                    Code::DatabaseBusy,
+                    format!(
+                        "the file stayed in use by another process for {} ms",
+                        waited.as_millis()
+                    ),
+                )
+            },
+            StoreError::Unavailable(error) => {
+                tracing::error!(%error, "cannot open the data file");
+                let message = match error {
+                    OpenError::Missing(_) => {
+                        "the data file is gone: it was deleted or moved while in use"
+                    }
+                    OpenError::NotIdbseq(_) => "the data file is not an idbseq file",
+                    _ => "the data file cannot be opened",
+                };
+                Self::new(Code::DatabaseUnavailable, message)
+            }
         }
     }
 }

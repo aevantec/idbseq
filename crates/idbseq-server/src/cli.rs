@@ -12,6 +12,9 @@ use crate::config::Config;
 #[derive(Debug, Parser)]
 #[command(name = "idbseqd", version, about = "idbseq ID sequence server")]
 pub struct Cli {
+    /// Serve the admin console at /ui/ (the same as `ui = true` or `IDBSEQ_UI=true`).
+    #[arg(long, global = true)]
+    pub ui: bool,
     #[command(subcommand)]
     pub command: Option<Command>,
 }
@@ -41,6 +44,18 @@ pub enum Command {
     },
     /// Exit 0 if `GET /healthz` on the configured address answers 200 (for container health checks).
     Healthcheck,
+    /// Open the admin console on an embedded idbseq file, on this machine only.
+    /// The app using the file can keep taking IDs meanwhile (shared mode).
+    Console {
+        /// The idbseq file, e.g. `app.idbseq`.
+        file: PathBuf,
+        /// Port on 127.0.0.1; 0 picks a free one.
+        #[arg(long, default_value_t = 0)]
+        port: u16,
+        /// Create the file if it does not exist (otherwise a missing file is an error, to catch typos).
+        #[arg(long)]
+        create: bool,
+    },
 }
 
 #[derive(Clone, Copy, Debug, Subcommand)]
@@ -74,6 +89,11 @@ impl Failure {
     }
 }
 
+/// Printed after every restore: credentials come back with the counters.
+const RESTORE_CREDENTIALS_NOTE: &str = "note: API keys, the admin password and sessions are now as they were in the backup. \
+Revoke any key revoked since then again (`idbseq keys list`), and change the admin \
+password if it was changed since (`idbseqd admin reset-password`).";
+
 /// Run a non-serve command. Returns the message to print on success.
 ///
 /// # Errors
@@ -81,17 +101,22 @@ impl Failure {
 /// The command failed; see [`Failure`].
 pub fn run(command: Command, config: &Config) -> Result<String, Failure> {
     match command {
-        Command::Serve => Err(Failure::new(2, "serve is handled by main")),
+        Command::Serve | Command::Console { .. } => {
+            Err(Failure::new(2, "serve and console are handled by main"))
+        }
         Command::Admin { action } => admin(action, config),
         Command::Backup { path } => backup(config, &path),
         Command::Restore { path, force } => crate::backup::restore(&config.data_dir, &path, force)
-            .map(|kept| match kept {
-                Some(old) => format!(
-                    "restored {}; previous data kept at {}",
-                    path.display(),
-                    old.display()
-                ),
-                None => format!("restored {}", path.display()),
+            .map(|kept| {
+                let restored = match kept {
+                    Some(old) => format!(
+                        "restored {}; previous data kept at {}",
+                        path.display(),
+                        old.display()
+                    ),
+                    None => format!("restored {}", path.display()),
+                };
+                format!("{restored}\n{RESTORE_CREDENTIALS_NOTE}")
             })
             .map_err(|e| Failure::new(1, e.to_string())),
         Command::Openapi { check } => openapi(check.as_deref()),

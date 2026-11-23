@@ -1,0 +1,14 @@
+{
+  "name": "idbseq-docs",
+  "private": true,
+  "description": "The idbseq documentation website (VitePress), built from the Markdown in this folder",
+  "type": "module",
+  "scripts": {
+    "dev": "node .vitepress/scripts/copy-openapi.mjs && vitepress dev",
+    "build": "node .vitepress/scripts/copy-openapi.mjs && vitepress build",
+    "preview": "vitepress preview"
+  },
+  "devDependencies": {
+    "vitepress": "1.6.4"
+  }
+}

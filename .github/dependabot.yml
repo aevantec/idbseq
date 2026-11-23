@@ -1,0 +1,21 @@
+# Actions are pinned to commit SHAs (with the version in a comment); Dependabot
+# proposes the new SHA and version together.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ['*']
+    commit-message:
+      prefix: ci
+
+  # Base images in the Dockerfile are pinned by digest.
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: chore

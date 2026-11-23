@@ -9,8 +9,9 @@ project's planning cards; decisions that shape the code are recorded as ADRs in
 
 ## 1. What idbseq is
 
-idbseq is a small, fast server written in Rust that hands out **increasing numeric
-IDs**. IDs are grouped into **collections**: each collection is an independent
+idbseq is an embeddable ID sequence generator written in Rust that hands out
+**increasing numeric IDs**, from one portable file inside the app, or from a small
+server when several machines share a sequence (ADR-0006). IDs are grouped into **collections**: each collection is an independent
 counter whose only content is the sequence of numbers it has issued.
 
 ```
@@ -19,14 +20,14 @@ collection "invoices"  → 1000, 1010, 1020, …   (start 1000, step 10)
 collection "tickets"   → 1, 2, 3, …            (protected: only the admin may reset or wipe it)
 ```
 
-Any language reaches it over HTTP/JSON. Node.js and PHP get official SDKs; other
+Any language reaches it over HTTP/JSON. Node.js gets an official SDK; other
 languages use the OpenAPI contract or plain HTTP.
 
 ### Goals
 
 - **Uniqueness above all:** an ID is never issued twice from a collection, including
   under concurrency, process crashes and restarts.
-- **Any language:** a documented REST API with an OpenAPI contract, plus SDKs.
+- **Any language:** a documented REST API with an OpenAPI contract, plus an SDK.
 - **Many collections:** create, list, inspect, reset and delete collections at runtime.
 - **Protected collections:** an admin account guards destructive operations
   (reset, wipe) on collections marked `protected`.
@@ -55,8 +56,8 @@ languages use the OpenAPI contract or plain HTTP.
 
 ```
  ┌───────────────┐  ┌──────────────┐  ┌──────────────┐  ┌───────────────┐
- │ Node SDK      │  │ PHP SDK      │  │ idbseq CLI   │  │ curl / Python │
- │ idbseq (npm)  │  │ idbseq/idbseq│  │ (Rust)       │  │ / Go / …      │
+ │ Node SDK      │  │ MCP server   │  │ idbseq CLI   │  │ curl / Python │
+ │ idbseq (npm)  │  │ idbseq-mcp   │  │ (Rust)       │  │ / Go / …      │
  └──────┬────────┘  └──────┬───────┘  └──────┬───────┘  └──────┬────────┘
         └──────────────────┴─── HTTP/JSON (REST v1) ───────────┘
                                     │
@@ -86,7 +87,6 @@ languages use the OpenAPI contract or plain HTTP.
 | `crates/idbseq-server`| binary  | `idbseqd`: HTTP API, auth, admin bootstrap, ops commands     |
 | `crates/idbseq-cli`   | binary  | `idbseq`: command-line client over the HTTP API              |
 | `sdk/node`            | npm     | `idbseq` TypeScript SDK                            |
-| `sdk/php`             | Composer| `idbseq/idbseq` PHP SDK                                    |
 | `api/openapi.json`    | spec    | Committed OpenAPI 3.1 contract                               |
 
 ### Storage and durability
@@ -115,11 +115,20 @@ languages use the OpenAPI contract or plain HTTP.
 
 ## 5. API sketch (REST v1)
 
-All responses use one envelope:
+All responses use one envelope. Success:
 
 ```json
 { "success": true, "data": { "id": 42 }, "error": null }
-{ "success": false, "data": null, "error": { "code": "SEQUENCE_EXHAUSTED", "message": "…" } }
+```
+
+Failure:
+
+```json
+{
+  "success": false,
+  "data": null,
+  "error": { "code": "SEQUENCE_EXHAUSTED", "message": "…" }
+}
 ```
 
 | Method | Path                                  | Purpose                              | Who                          |
@@ -146,10 +155,17 @@ Error codes: `VALIDATION_FAILED`, `UNAUTHORIZED`, `FORBIDDEN`,
 ### SDK shape (Node example)
 
 ```ts
-const ids = new IdbseqClient({ url: 'http://127.0.0.1:7878', apiKey: process.env.IDBSEQ_KEY });
-const id = await ids.generateId('orders');            // 1043
-const batch = await ids.generateIds('orders', 100);   // { first: 1044, last: 1143, count: 100 }
-const last = await ids.lastId('orders');              // 1143
+const ids = new IdbSeqClient({
+  url: 'http://127.0.0.1:7878',
+  apiKey: process.env.IDBSEQ_KEY,
+});
+
+// 1043
+const id = await ids.generateId('orders');
+// { first: 1044, last: 1143, count: 100 }
+const batch = await ids.generateIds('orders', 100);
+// 1143
+const last = await ids.lastId('orders');
 const page = await ids.listCollections({ limit: 50 });
 ```
 
@@ -175,9 +191,9 @@ Each card carries a milestone label (`m0-…` to `m5-…`) and an `area`.
 | M1 Core engine        | US-0004 – US-0013, US-0035, US-0038, US-0039 | Durable, concurrent-safe, benchmarked sequence library | Done (benchmarks: `benches/baseline.md`, ADR-0005 proposed) |
 | M2 HTTP API           | US-0014 – US-0020                         | `idbseqd` REST API with OpenAPI contract         | Done |
 | M3 Security & admin   | US-0021 – US-0026                         | Admin, API keys, protected collections, audit    | Done |
-| M4 Clients            | US-0027 – US-0031                         | CLI, Node SDK, PHP SDK, other-language docs, e2e | Done |
+| M4 Clients            | US-0027 – US-0031                         | CLI, Node SDK, other-language docs, e2e | Done (the PHP SDK was dropped on 2026-11-18) |
 | M5 Operations         | US-0032 – US-0034, US-0040                | Releases, Docker, backup/restore, metrics, public release | US-0032–34 done (`v0.1.0-rc.2`); US-0040 (go public) in progress |
-| M6 After release      | US-0041 – US-0043                         | SDK ID prefetch for distant clients, Windows builds, docs website | Planned |
+| M6 After release      | US-0041 – US-0045                         | SDK ID prefetch for distant clients, Windows builds, docs website, agent skill, MCP server | US-0043 (docs website, VitePress) and US-0045 (MCP server) built, in review, published with the first public release; the rest planned |
 
 Suggested critical path: US-0001 → US-0002 → US-0005 → US-0004 → US-0006 →
 US-0007 → US-0010 → US-0014 → US-0015 → US-0016/17 → US-0021 → US-0022 →
@@ -188,7 +204,7 @@ US-0023 → US-0024 → US-0019 → US-0028/29.
 Settled decisions are recorded as ADRs in [`docs/adr/`](adr/README.md).
 
 ISSUE-0001 to ISSUE-0004, ISSUE-0006 and ISSUE-0007 are settled provisionally (ADRs
-0001–0004; the owner may revisit them). ISSUE-0005 is decided: MIT, public npm, Packagist and GHCR.
+0001–0004; the owner may revisit them). ISSUE-0005 is decided: MIT, public npm and GHCR.
 
 | Card       | Decision                                         | Recommendation                         |
 | ---------- | ------------------------------------------------ | -------------------------------------- |
@@ -196,7 +212,7 @@ ISSUE-0001 to ISSUE-0004, ISSUE-0006 and ISSUE-0007 are settled provisionally (A
 | ISSUE-0002 | Numeric range and JSON representation            | Signed 64-bit, JSON number, SDK bigint |
 | ISSUE-0003 | Transport for v1                                 | REST/JSON only                         |
 | ISSUE-0004 | Single node vs HA                                | Single node + backups                  |
-| ISSUE-0005 | License and package registries                   | MIT; public npm, Packagist, GHCR (decided) |
+| ISSUE-0005 | License and package registries                   | MIT; public npm, GHCR (decided) |
 | ISSUE-0006 | Who may reset/wipe unprotected collections       | `manage` keys; rewinds need explicit flag |
 | ISSUE-0007 | redb has one writer: how collections share it    | Group commit (US-0039) + block mode     |
 

@@ -1,22 +1,27 @@
 #!/usr/bin/env bash
 # Start a throwaway idbseqd and run every end-to-end client suite against it:
-# the Node SDK, the PHP SDK, the idbseq CLI and the other-language examples.
+# the Node SDK, the MCP server, the idbseq CLI, the other-language examples
+# and the admin console (US-0046, in a headless browser).
 #
-# Usage: scripts/e2e.sh [node] [php] [cli] [examples]   (default: all)
-# Needs: cargo; plus npm / composer for the SDK suites (installed deps), and
+# Usage: scripts/e2e.sh [node] [mcp] [cli] [examples] [ui]   (default: all)
+# Needs: cargo; plus npm for the SDK suites (installed deps), the
+# Playwright browser for ui (`npx playwright install chromium` in
+# crates/idbseq-server/ui), and
 # whichever example toolchains you have (missing ones are skipped by examples/run.sh).
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SUITES=("$@")
-[[ ${#SUITES[@]} -eq 0 ]] && SUITES=(node php cli examples)
+[[ ${#SUITES[@]} -eq 0 ]] && SUITES=(node mcp cli examples ui)
 PASSWORD="e2e admin password $$"
 PORT="${IDBSEQ_E2E_PORT:-17878}"
 URL="http://127.0.0.1:${PORT}"
 DATA_DIR="$(mktemp -d)"
 SERVER_PID=""
+CONSOLE_PID=""
 
 cleanup() {
+  [[ -n "$CONSOLE_PID" ]] && kill -TERM "$CONSOLE_PID" 2>/dev/null || true
   if [[ -n "$SERVER_PID" ]]; then
     kill -TERM "$SERVER_PID" 2>/dev/null || true
     wait "$SERVER_PID" 2>/dev/null || true
@@ -29,7 +34,8 @@ trap cleanup EXIT
 cargo build --locked --quiet --manifest-path "$ROOT/Cargo.toml" --bin idbseqd --bin idbseq
 BIN="$ROOT/target/debug"
 
-IDBSEQ_DATA_DIR="$DATA_DIR" IDBSEQ_BIND="127.0.0.1:${PORT}" IDBSEQ_ADMIN_PASSWORD="$PASSWORD" \
+printf 'ui = true\n' >"$DATA_DIR/idbseq.toml"   # serve the console for the ui suite
+IDBSEQ_CONFIG="$DATA_DIR/idbseq.toml" IDBSEQ_DATA_DIR="$DATA_DIR" IDBSEQ_BIND="127.0.0.1:${PORT}" IDBSEQ_ADMIN_PASSWORD="$PASSWORD" \
   IDBSEQ_LOG=warn "$BIN/idbseqd" &
 SERVER_PID=$!
 for _ in $(seq 1 100); do
@@ -47,8 +53,25 @@ run_node() {
   (cd "$ROOT/sdk/node" && IDBSEQ_E2E_URL="$URL" IDBSEQ_E2E_ADMIN_PASSWORD="$PASSWORD" npm run --silent test:e2e)
 }
 
-run_php() {
-  (cd "$ROOT/sdk/php" && IDBSEQ_E2E_URL="$URL" IDBSEQ_E2E_ADMIN_PASSWORD="$PASSWORD" composer test:e2e)
+run_mcp() {
+  (cd "$ROOT/sdk/mcp" && IDBSEQ_E2E_URL="$URL" IDBSEQ_E2E_ADMIN_PASSWORD="$PASSWORD" npm run --silent test:e2e)
+}
+
+# `idbseqd console` on a new file, for the ui suite's local.spec.ts. Sets CONSOLE_LINK.
+start_console() {
+  "$BIN/idbseqd" console --create "$DATA_DIR/app.idbseq" >/dev/null 2>"$DATA_DIR/console.log" &
+  CONSOLE_PID=$!
+  for _ in $(seq 1 100); do
+    grep -q '^http://' "$DATA_DIR/console.log" 2>/dev/null && break
+    sleep 0.1
+  done
+  CONSOLE_LINK="$(grep -m1 '^http://' "$DATA_DIR/console.log")"
+}
+
+run_ui() {
+  start_console
+  (cd "$ROOT/crates/idbseq-server/ui" && IDBSEQ_E2E_URL="$URL" IDBSEQ_E2E_ADMIN_PASSWORD="$PASSWORD" \
+    IDBSEQ_E2E_CONSOLE_LINK="$CONSOLE_LINK" npm run --silent test:e2e)
 }
 
 run_cli() {

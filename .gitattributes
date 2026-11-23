@@ -1,0 +1,5 @@
+# LF everywhere, Windows checkouts too: generated files (api/openapi.json) are
+# compared byte for byte, and shell scripts run in Git Bash.
+* text=auto eol=lf
+*.redb binary
+*.node binary

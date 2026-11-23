@@ -8,11 +8,12 @@
 //!
 //! One mutex guards the reservations. `update` and `delete` take it too, so a
 //! change to a block collection can never race with serving from its block.
+//! Strict collections belong to the committer: this path never writes one.
 
 use std::collections::HashMap;
 use std::sync::{Mutex, MutexGuard, PoisonError};
 
-use ::redb::{Database, ReadableDatabase};
+use ::redb::{Database, ReadableDatabase, ReadableTable};
 
 use super::codec::{backend, decode, encode};
 use super::{COLLECTIONS, IDEMPOTENCY};
@@ -58,22 +59,27 @@ impl Blocks {
         }
     }
 
-    pub fn advance(&self, db: &Database, request: &AdvanceRequest) -> Result<Issued, StoreError> {
-        let mut cache = self.lock();
-        if let Some(range) = replayed(db, request)? {
-            return Ok(Issued {
-                range,
-                replayed: true,
-            });
-        }
+    /// Issue from a block collection's reservation, with the reservation lock held
+    /// (see [`Blocks::with_lock`]). `None` when the collection is strict now: the
+    /// caller hands it back to the committer while still holding the lock.
+    pub fn advance(
+        cache: &mut Cache,
+        db: &Database,
+        request: &AdvanceRequest,
+    ) -> Result<Option<Issued>, StoreError> {
         let name = request.name.as_str();
         let persisted = read_collection(db, name)?;
-        let (block_size, is_block) = match persisted.spec().durability {
-            Durability::Block { size } => (size, true),
-            // Switched to strict since the committer looked: reserve exactly the
-            // requested IDs, which makes this one durable strict advance.
-            Durability::Strict => (request.count, false),
+        // Block collections are only written under this lock, so this read stays
+        // current until the commit below.
+        let Durability::Block { size: block_size } = persisted.spec().durability else {
+            return Ok(None);
         };
+        if let Some(range) = replayed(db, request)? {
+            return Ok(Some(Issued {
+                range,
+                replayed: true,
+            }));
+        }
         let current = cache.get(name).copied().unwrap_or(Reservation {
             last_issued: persisted.last_id(),
             reserved_until: persisted.last_id(),
@@ -92,26 +98,29 @@ impl Blocks {
             let size = block_size.max(request.count);
             let block_end = view
                 .advance(size)
-                .map_or(view.spec().max, |(_, block)| block.last);
+                // A full block does not fit: reserve up to the last ID on the grid.
+                .map_or_else(|_| view.highest_id(), |(_, block)| block.last);
             Some(block_end)
         };
         if !covered || request.idempotency.is_some() {
             let mark = (!covered).then(|| persisted.with_last_id(reserved_until));
-            persist(db, mark.as_ref(), request, range)?;
+            if let Some(range) = persist(db, mark.as_ref(), request, range)? {
+                // The same key was just used on a strict collection.
+                return Ok(Some(Issued {
+                    range,
+                    replayed: true,
+                }));
+            }
         }
-        if is_block {
-            let reservation = Reservation {
-                last_issued: Some(range.last),
-                reserved_until,
-            };
-            cache.insert(name.to_owned(), reservation);
-        } else {
-            cache.remove(name);
-        }
-        Ok(Issued {
+        let reservation = Reservation {
+            last_issued: Some(range.last),
+            reserved_until,
+        };
+        cache.insert(name.to_owned(), reservation);
+        Ok(Some(Issued {
             range,
             replayed: false,
-        })
+        }))
     }
 }
 
@@ -143,13 +152,28 @@ fn replayed(
 }
 
 /// Commit a new reservation mark and/or the idempotency record in one transaction.
+/// The key is checked again inside it, because the committer may have recorded it
+/// for a strict collection since [`replayed`] looked: then nothing is written and
+/// that earlier range is the answer (or a mismatch error).
 fn persist(
     db: &Database,
     mark: Option<&Collection>,
     request: &AdvanceRequest,
     range: crate::collection::IssuedRange,
-) -> Result<(), StoreError> {
+) -> Result<Option<crate::collection::IssuedRange>, StoreError> {
     let txn = db.begin_write().map_err(backend)?;
+    if let Some(key) = &request.idempotency {
+        let existing: Option<Record> = txn
+            .open_table(IDEMPOTENCY)
+            .map_err(backend)?
+            .get(key.key.as_str())
+            .map_err(backend)?
+            .map(|guard| decode(guard.value()))
+            .transpose()?;
+        if let Some(range) = idempotency::replay(existing.as_ref(), key)? {
+            return Ok(Some(range));
+        }
+    }
     {
         if let Some(collection) = mark {
             txn.open_table(COLLECTIONS)
@@ -167,5 +191,6 @@ fn persist(
                 .map_err(backend)?;
         }
     }
-    txn.commit().map_err(backend)
+    txn.commit().map_err(backend)?;
+    Ok(None)
 }

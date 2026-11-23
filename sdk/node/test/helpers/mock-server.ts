@@ -23,9 +23,8 @@ export interface MockReply {
 }
 
 export function ok(data: unknown, meta?: unknown): MockReply {
-  const envelope = meta === undefined
-    ? { success: true, data, error: null }
-    : { success: true, data, error: null, meta };
+  const envelope =
+    meta === undefined ? { success: true, data, error: null } : { success: true, data, error: null, meta };
   return { status: 200, json: envelope };
 }
 
@@ -106,10 +105,7 @@ export class MockServer {
     await new Promise<void>((resolve) => this.server.close(() => resolve()));
   }
 
-  private async answer(
-    reply: MockReply,
-    res: import('node:http').ServerResponse,
-  ): Promise<void> {
+  private async answer(reply: MockReply, res: import('node:http').ServerResponse): Promise<void> {
     if (reply.delayMs !== undefined) {
       await sleep(reply.delayMs);
     }

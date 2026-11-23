@@ -2,7 +2,7 @@
 // IDBSEQ_E2E_URL and IDBSEQ_E2E_ADMIN_PASSWORD are set.
 import { randomBytes } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { IdbseqClient, ProtectedCollectionError, type CreatedApiKey } from '../../src/index.js';
+import { IdbSeqClient, ProtectedCollectionError, type CreatedApiKey } from '../../src/index.js';
 
 const url = process.env.IDBSEQ_E2E_URL ?? '';
 const adminPassword = process.env.IDBSEQ_E2E_ADMIN_PASSWORD ?? '';
@@ -12,18 +12,18 @@ const runId = `${Date.now().toString(36)}-${randomBytes(4).toString('hex')}`;
 const collectionName = `e2e-node-${runId}`;
 
 describe.skipIf(!enabled)('critical flow against a real server', () => {
-  let admin: IdbseqClient;
+  let admin: IdbSeqClient;
   let apiKey: CreatedApiKey | undefined;
-  let keyClient: IdbseqClient;
+  let keyClient: IdbSeqClient;
 
   beforeAll(async () => {
-    admin = new IdbseqClient({ url });
+    admin = new IdbSeqClient({ url });
     await admin.login('admin', adminPassword);
     apiKey = await admin.createKey({
       name: `e2e-node-${runId}`,
       scopes: ['read', 'generate', 'manage'],
     });
-    keyClient = new IdbseqClient({ url, apiKey: apiKey.key });
+    keyClient = new IdbSeqClient({ url, apiKey: apiKey.key });
   });
 
   afterAll(async () => {
@@ -59,9 +59,9 @@ describe.skipIf(!enabled)('critical flow against a real server', () => {
   });
 
   it('the key may not reset the protected collection', async () => {
-    await expect(
-      keyClient.resetCollection(collectionName, { allowRewind: true }),
-    ).rejects.toBeInstanceOf(ProtectedCollectionError);
+    await expect(keyClient.resetCollection(collectionName, { allowRewind: true })).rejects.toBeInstanceOf(
+      ProtectedCollectionError,
+    );
   });
 
   it('the admin resets the protected collection', async () => {

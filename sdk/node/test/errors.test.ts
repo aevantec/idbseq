@@ -4,7 +4,7 @@ import {
   CollectionNotFoundError,
   createApiError,
   ForbiddenError,
-  IdbseqError,
+  IdbSeqError,
   InternalError,
   NotFoundError,
   PayloadTooLargeError,
@@ -37,7 +37,7 @@ describe('createApiError', () => {
 
     // Assert
     expect(error).toBeInstanceOf(errorClass);
-    expect(error).toBeInstanceOf(IdbseqError);
+    expect(error).toBeInstanceOf(IdbSeqError);
     expect(error.name).toBe(errorClass.name);
     expect(error.code).toBe(code);
   });

@@ -170,6 +170,19 @@ impl Collection {
         next.filter(|id| *id <= self.spec.max)
     }
 
+    /// The highest ID this collection can ever issue: `max`, rounded down onto the
+    /// step grid (`start`, `start + step`, …).
+    #[must_use]
+    pub fn highest_id(&self) -> Id {
+        let span = Self::offset(self.spec.start, self.spec.max);
+        let on_grid = span - span % self.spec.step.get();
+        // `start + on_grid <= max`, so this cannot overflow.
+        self.spec
+            .start
+            .checked_add_unsigned(on_grid)
+            .unwrap_or(self.spec.max)
+    }
+
     /// The last ID of a run of `count` IDs starting at `first`, if it fits under `max`.
     fn last_of_run(&self, first: Id, count: NonZeroU32) -> Option<Id> {
         let span = self

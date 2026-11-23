@@ -24,7 +24,8 @@ use crate::store::{AdvanceRequest, Issued, StoreError};
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum Outcome {
     Issued(Issued),
-    /// The collection uses block durability; the caller must use the block path.
+    /// The collection uses block durability and blocks are cached: the caller
+    /// must use the block path.
     BlockMode,
 }
 
@@ -44,13 +45,16 @@ pub(super) struct Committer {
 }
 
 impl Committer {
-    pub fn start(db: Arc<Database>, config: GroupCommitConfig) -> Self {
+    /// Start the committer thread. With `cache_blocks` false, block collections
+    /// are issued here like strict ones, one write per group.
+    pub fn start(db: Arc<Database>, config: GroupCommitConfig, cache_blocks: bool) -> Self {
         let (sender, receiver) = mpsc::channel();
         let fail_next_commit = Arc::new(AtomicBool::new(false));
         let commits = Arc::new(AtomicU64::new(0));
         let probes = Probes {
             fail: Arc::clone(&fail_next_commit),
             commits: Arc::clone(&commits),
+            cache_blocks,
         };
         let worker = thread::Builder::new()
             .name("idbseq-committer".into())
@@ -84,10 +88,12 @@ impl Committer {
     }
 }
 
-/// Hooks observed by tests: inject one commit failure, count commits.
+/// Hooks observed by tests (inject one commit failure, count commits), and
+/// whether block collections go to the block path.
 struct Probes {
     fail: Arc<AtomicBool>,
     commits: Arc<AtomicU64>,
+    cache_blocks: bool,
 }
 
 impl Drop for Committer {
@@ -144,7 +150,12 @@ fn commit_group(db: &Database, jobs: &[Job], probes: &Probes) -> Result<Vec<Repl
         let mut wrote = false;
         let mut replies = Vec::with_capacity(jobs.len());
         for job in jobs {
-            let (reply, changed) = apply(&mut collections, &mut keys, &job.request)?;
+            let (reply, changed) = apply(
+                &mut collections,
+                &mut keys,
+                &job.request,
+                probes.cache_blocks,
+            )?;
             wrote |= changed;
             replies.push(reply);
         }
@@ -166,6 +177,7 @@ fn apply(
     collections: &mut Table<&str, &[u8]>,
     keys: &mut Table<&str, &[u8]>,
     request: &AdvanceRequest,
+    cache_blocks: bool,
 ) -> Result<(Reply, bool), StoreError> {
     if let Some(key) = &request.idempotency {
         let existing: Option<Record> = keys
@@ -196,7 +208,7 @@ fn apply(
     let Some(current) = current else {
         return Ok((Err(StoreError::NotFound(name.to_owned())), false));
     };
-    if matches!(current.spec().durability, Durability::Block { .. }) {
+    if cache_blocks && matches!(current.spec().durability, Durability::Block { .. }) {
         return Ok((Ok(Outcome::BlockMode), false));
     }
     let Ok((updated, range)) = current.advance(request.count) else {

@@ -6,7 +6,11 @@
 //!
 //! Protocol: one request line, one response line `ok <message>` or `error <message>`.
 //! Requests: `backup <path>`, `admin-init <password>`, `admin-reset-password <password>`.
+//!
+//! Not on Windows yet (US-0042): there `request` finds no server, so these
+//! commands open the data file themselves and need the server stopped.
 
+#[cfg(unix)]
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
@@ -118,7 +122,13 @@ pub fn listen(data_dir: &Path, state: AppState) -> std::io::Result<tokio::task::
     }))
 }
 
+/// No local channel on Windows yet (US-0042): nothing to listen on.
+///
+/// # Errors
+///
+/// None; the signature matches the Unix version.
 #[cfg(not(unix))]
+#[allow(clippy::unnecessary_wraps)]
 pub fn listen(_data_dir: &Path, _state: AppState) -> std::io::Result<tokio::task::JoinHandle<()>> {
     Ok(tokio::spawn(async {}))
 }

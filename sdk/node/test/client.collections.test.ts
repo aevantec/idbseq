@@ -2,7 +2,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import {
   CollectionExistsError,
   CollectionNotFoundError,
-  IdbseqClient,
+  IdbSeqClient,
   ProtectedCollectionError,
   ValidationFailedError,
 } from '../src/index.js';
@@ -33,7 +33,7 @@ const SDK_COLLECTION = {
 };
 
 let server: MockServer;
-let client: IdbseqClient;
+let client: IdbSeqClient;
 
 beforeAll(async () => {
   server = await MockServer.start();
@@ -45,7 +45,7 @@ afterAll(async () => {
 
 beforeEach(() => {
   server.reset();
-  client = new IdbseqClient({ url: `${server.url}/`, apiKey: 'k' });
+  client = new IdbSeqClient({ url: `${server.url}/`, apiKey: 'k' });
 });
 
 describe('listCollections', () => {

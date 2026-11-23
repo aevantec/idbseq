@@ -76,8 +76,18 @@ impl From<&Collection> for CollectionDto {
     }
 }
 
+/// Largest `step` the API takes: the contract declares it an int64, so typed
+/// clients (PHP's `int`, for one) cannot read anything larger.
+pub const MAX_STEP: u64 = i64::MAX.unsigned_abs();
+
 fn step_of(step: Option<u64>) -> Result<Option<NonZeroU64>, ValidationErrors> {
     step.map(|s| {
+        if s > MAX_STEP {
+            return Err(ValidationErrors::field(
+                "step",
+                format!("must be at most {MAX_STEP}"),
+            ));
+        }
         NonZeroU64::new(s).ok_or_else(|| ValidationErrors::field("step", "must be greater than 0"))
     })
     .transpose()
@@ -233,6 +243,25 @@ impl From<ResetOutcome> for ResetDto {
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct HealthDto {
     pub status: String,
+    /// `server` for `idbseqd`, `console` for `idbseqd console <file>` (no
+    /// accounts: the console signs in only through the link it printed).
+    #[schema(example = "server")]
+    pub mode: String,
+}
+
+impl HealthDto {
+    #[must_use]
+    pub fn new(status: &str, state: &crate::state::AppState) -> Self {
+        let mode = if state.local_token().is_some() {
+            "console"
+        } else {
+            "server"
+        };
+        Self {
+            status: status.to_owned(),
+            mode: mode.to_owned(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Deserialize, ToSchema)]
@@ -240,6 +269,21 @@ pub struct HealthDto {
 pub struct LoginBody {
     pub username: String,
     pub password: String,
+}
+
+/// First-run setup: the token from the link `idbseqd` printed and the new admin password.
+#[derive(Debug, Clone, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct SetupBody {
+    pub token: String,
+    /// At least 8 characters.
+    pub password: String,
+}
+
+/// A refreshed admin session: the same token, a later expiry.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct SessionExpiryDto {
+    pub expires_at: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]

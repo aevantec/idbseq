@@ -1,10 +1,14 @@
-export { DEFAULT_TIMEOUT_MS, DEFAULT_URL, IdbseqClient, type ClientOptions } from './client.js';
+export { DEFAULT_TIMEOUT_MS, DEFAULT_URL, IdbSeqClient, type ClientOptions } from './client.js';
+export { DEFAULT_BUSY_TIMEOUT_MS, IdbSeqDatabase, type DatabaseOptions, type Sequences } from './embedded.js';
 export {
   CollectionExistsError,
   CollectionNotFoundError,
+  DatabaseBusyError,
+  DatabaseClosedError,
+  DatabaseUnavailableError,
   ForbiddenError,
-  IdbseqError,
-  IdbseqNetworkError,
+  IdbSeqError,
+  IdbSeqNetworkError,
   InternalError,
   NotFoundError,
   PayloadTooLargeError,
@@ -15,7 +19,7 @@ export {
   UnexpectedResponseError,
   UnknownCodeError,
   ValidationFailedError,
-  type IdbseqErrorInit,
+  type IdbSeqErrorInit,
 } from './errors.js';
 export { parseJson, stringifyJson } from './json.js';
 export { DEFAULT_RETRY, type RetryOptions } from './retry.js';

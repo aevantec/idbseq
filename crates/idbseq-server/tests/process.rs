@@ -1,5 +1,6 @@
 //! Real `idbseqd` processes: US-0010 crash safety (SIGKILL), US-0019 graceful shutdown,
-//! single instance per data dir, `healthcheck`, US-0033 backup while running and restore.
+//! single instance per data dir, `healthcheck`, US-0033 backup while running and restore,
+//! US-0047 the first-run setup link.
 #![cfg(unix)]
 #![allow(clippy::expect_used)]
 
@@ -436,4 +437,71 @@ fn starts_even_when_the_data_dir_is_too_long_for_the_admin_socket() {
     let next = server.call("POST", "/v1/collections/orders/next", Some(&token), None);
 
     assert_eq!(next["data"], json!({"id": 1}));
+}
+
+/// Read `child`'s stderr until a line contains `needle`, or panic after `STARTUP`.
+fn wait_for_stderr_line(child: &mut Child, needle: &str) -> String {
+    use std::io::{BufRead, BufReader};
+    let stderr = child.stderr.take().expect("piped stderr");
+    let (sender, receiver) = std::sync::mpsc::channel();
+    thread::spawn(move || {
+        for line in BufReader::new(stderr).lines().map_while(Result::ok) {
+            if sender.send(line).is_err() {
+                return;
+            }
+        }
+    });
+    let deadline = Instant::now() + STARTUP;
+    while let Some(left) = deadline.checked_duration_since(Instant::now()) {
+        match receiver.recv_timeout(left) {
+            Ok(line) if line.contains(needle) => return line,
+            Ok(_) => {}
+            Err(_) => break,
+        }
+    }
+    panic!("idbseqd never printed a line containing {needle:?}");
+}
+
+#[test]
+fn a_first_start_with_the_console_prints_a_setup_link_that_creates_the_admin() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let bind = free_address();
+    let mut child = Command::new(BIN)
+        .arg("--ui")
+        .env("IDBSEQ_DATA_DIR", dir.path())
+        .env("IDBSEQ_BIND", &bind)
+        .env("IDBSEQ_LOG", "error")
+        .env_remove("IDBSEQ_ADMIN_PASSWORD")
+        .env_remove("IDBSEQ_CONFIG")
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("spawn idbseqd");
+
+    let line = wait_for_stderr_line(&mut child, "/ui/#/setup?token=");
+    let prefix = format!("http://{bind}/ui/#/setup?token=");
+    let token = line
+        .trim()
+        .strip_prefix(&prefix)
+        .unwrap_or_else(|| panic!("unexpected link line: {line}"));
+    let http = Client::new();
+    let base = format!("http://{bind}");
+    let deadline = Instant::now() + STARTUP;
+    while http.get(format!("{base}/healthz")).send().is_err() && Instant::now() < deadline {
+        thread::sleep(POLL);
+    }
+    let reply: Value = http
+        .post(format!("{base}/v1/auth/setup"))
+        .json(&json!({"token": token, "password": PASSWORD}))
+        .send()
+        .expect("setup")
+        .json()
+        .expect("json");
+    let page = http.get(format!("{base}/ui/")).send().expect("console");
+    let _ = child.kill();
+    let _ = child.wait();
+
+    assert_eq!(reply["success"], json!(true), "{reply}");
+    assert!(reply["data"]["token"].is_string());
+    assert!(page.status().is_success(), "--ui serves the console");
 }

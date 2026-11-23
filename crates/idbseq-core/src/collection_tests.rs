@@ -263,3 +263,24 @@ fn durability_serialises_with_a_mode_tag() {
         r#"{"mode":"strict"}"#
     );
 }
+
+#[test]
+fn highest_id_is_max_rounded_down_onto_the_step_grid() {
+    let spec = |start, step, max| CollectionSpec {
+        start,
+        step: std::num::NonZeroU64::new(step).expect("non-zero"),
+        max,
+        ..CollectionSpec::named("grid")
+    };
+    let highest = |s| {
+        Collection::create(s, std::time::SystemTime::UNIX_EPOCH)
+            .expect("valid")
+            .highest_id()
+    };
+
+    assert_eq!(highest(spec(1, 10, 100)), 91);
+    assert_eq!(highest(spec(1, 1, 100)), 100);
+    assert_eq!(highest(spec(5, 7, 5)), 5);
+    assert_eq!(highest(spec(i64::MIN, u64::MAX, i64::MAX)), i64::MAX);
+    assert_eq!(highest(spec(-10, 4, -1)), -2);
+}

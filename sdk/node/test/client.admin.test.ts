@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { IdbseqClient, NotFoundError, UnauthorizedError } from '../src/index.js';
+import { IdbSeqClient, IdbSeqError, NotFoundError, UnauthorizedError } from '../src/index.js';
 import { fail, MockServer, ok } from './helpers/mock-server.js';
 
 const WIRE_KEY = {
@@ -21,7 +21,7 @@ const SDK_KEY = {
 };
 
 let server: MockServer;
-let admin: IdbseqClient;
+let admin: IdbSeqClient;
 
 beforeAll(async () => {
   server = await MockServer.start();
@@ -33,7 +33,7 @@ afterAll(async () => {
 
 beforeEach(() => {
   server.reset();
-  admin = new IdbseqClient({ url: server.url });
+  admin = new IdbSeqClient({ url: server.url });
 });
 
 describe('login and logout', () => {
@@ -65,7 +65,7 @@ describe('login and logout', () => {
 
   it('logout revokes the session and falls back to the API key', async () => {
     // Arrange
-    const client = new IdbseqClient({ url: server.url, apiKey: 'idb_k_s' });
+    const client = new IdbSeqClient({ url: server.url, apiKey: 'idb_k_s' });
     server.reply(ok({ token: 'sess-2', expires_at: 'x' }), ok(null), ok({ id: 1 }));
     await client.login('admin', 'pw');
 
@@ -76,6 +76,34 @@ describe('login and logout', () => {
     // Assert
     expect(server.requests[1]?.path).toBe('/v1/auth/logout');
     expect(server.requests[1]?.headers.authorization).toBe('Bearer sess-2');
+    expect(server.lastRequest.headers.authorization).toBe('Bearer idb_k_s');
+  });
+
+  it('logout after the session expired still falls back to the API key', async () => {
+    // Arrange
+    const client = new IdbSeqClient({ url: server.url, apiKey: 'idb_k_s' });
+    server.reply(ok({ token: 'sess-3', expires_at: 'x' }), fail(401, 'UNAUTHORIZED', 'session expired'), ok({ id: 1 }));
+    await client.login('admin', 'pw');
+
+    // Act
+    await client.logout();
+    await client.generateId('orders');
+
+    // Assert
+    expect(server.lastRequest.headers.authorization).toBe('Bearer idb_k_s');
+  });
+
+  it('logout drops the session even when the server cannot be reached', async () => {
+    // Arrange
+    const client = new IdbSeqClient({ url: server.url, apiKey: 'idb_k_s' });
+    server.reply(ok({ token: 'sess-4', expires_at: 'x' }), fail(500, 'INTERNAL', 'boom'), ok({ id: 1 }));
+    await client.login('admin', 'pw');
+
+    // Act
+    await expect(client.logout()).rejects.toBeInstanceOf(IdbSeqError);
+    await client.generateId('orders');
+
+    // Assert
     expect(server.lastRequest.headers.authorization).toBe('Bearer idb_k_s');
   });
 

@@ -9,7 +9,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use idbseq_core::collection::{Collection, Id};
 use idbseq_core::store::redb::{
-    COLLECTIONS, DATABASE_FILE, IDEMPOTENCY, META, SCHEMA_KEY, SCHEMA_VERSION,
+    COLLECTIONS, DATABASE_FILE, IDEMPOTENCY, META, SCHEMA_KEY, SCHEMA_VERSION, decode_collection,
+    make_private,
 };
 use redb::{
     Database, DatabaseError, ReadTransaction, ReadableDatabase, ReadableTable, TableDefinition,
@@ -51,6 +52,8 @@ pub fn snapshot(db: &Database, dest: &Path) -> Result<(), BackupError> {
     }
     let read = db.begin_read().map_err(storage)?;
     let target = Database::create(dest).map_err(storage)?;
+    // It holds the admin password hash and every key hash, like the data file.
+    make_private(dest).map_err(storage)?;
     let write = target.begin_write().map_err(storage)?;
     copy_tables(&read, &write)?;
     write.commit().map_err(storage)
@@ -96,7 +99,7 @@ fn counters(db: &Database) -> Result<BTreeMap<String, Option<Id>>, BackupError> 
         .map_err(storage)?
         .map(|row| {
             let (k, v) = row.map_err(storage)?;
-            let collection: Collection = serde_json::from_slice(v.value()).map_err(storage)?;
+            let collection: Collection = decode_collection(v.value()).map_err(storage)?;
             Ok((k.value().to_owned(), collection.last_id()))
         })
         .collect()
@@ -170,9 +173,15 @@ pub fn restore(
         Some(kept)
     } else {
         std::fs::create_dir_all(data_dir).map_err(storage)?;
+        make_private(data_dir).map_err(storage)?;
         None
     };
     std::fs::copy(backup, &current_path).map_err(storage)?;
+    make_private(&current_path).map_err(storage)?;
+    // On disk before reporting success, so a crash cannot leave a partial copy.
+    std::fs::File::open(&current_path)
+        .and_then(|file| file.sync_all())
+        .map_err(storage)?;
     Ok(kept)
 }
 
@@ -197,5 +206,33 @@ mod tests {
         .into();
 
         assert_eq!(behind(&current, &backup), ["b", "d"]);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn backups_and_restored_files_are_private_to_their_owner() {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = |path: &Path| {
+            std::fs::metadata(path)
+                .expect("metadata")
+                .permissions()
+                .mode()
+                & 0o777
+        };
+        let dir = tempfile::tempdir().expect("temp dir");
+        let store = idbseq_core::store::RedbStore::open(
+            &dir.path().join("data"),
+            idbseq_core::store::GroupCommitConfig::default(),
+        )
+        .expect("open");
+        let backup = dir.path().join("backup.redb");
+        let restored = dir.path().join("restored");
+
+        snapshot(&store.database(), &backup).expect("snapshot");
+        drop(store);
+        restore(&restored, &backup, false).expect("restore");
+
+        assert_eq!(mode(&backup), 0o600);
+        assert_eq!(mode(&restored.join(DATABASE_FILE)), 0o600);
     }
 }

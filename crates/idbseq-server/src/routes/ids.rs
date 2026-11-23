@@ -12,27 +12,24 @@ use super::{blocking, check_confirm};
 use crate::audit::{Action, Event};
 use crate::auth::{Principal, Scope};
 use crate::dto::{BatchDto, IdDto, LastDto, NextQuery, ResetBody, ResetDto};
+use idbseq_core::validation::idempotency_key_problem;
+
 use crate::envelope::{Envelope, Reply};
 use crate::error::ApiError;
 use crate::extract::{ApiJson, ApiPath, ApiQuery, RequestContext};
 use crate::state::AppState;
 
 pub const IDEMPOTENCY_HEADER: &str = "idempotency-key";
-const MAX_IDEMPOTENCY_KEY_LEN: usize = 255;
 
 fn idempotency_key(headers: &HeaderMap) -> Result<Option<String>, ApiError> {
     let Some(value) = headers.get(IDEMPOTENCY_HEADER) else {
         return Ok(None);
     };
     let key = value.to_str().unwrap_or_default();
-    let visible = key.bytes().all(|b| b.is_ascii_graphic());
-    if key.is_empty() || key.len() > MAX_IDEMPOTENCY_KEY_LEN || !visible {
-        return Err(ApiError::field(
-            "idempotency_key",
-            "must be 1-255 visible ASCII characters",
-        ));
+    match idempotency_key_problem(key) {
+        Some(problem) => Err(ApiError::field("idempotency_key", problem)),
+        None => Ok(Some(key.to_owned())),
     }
-    Ok(Some(key.to_owned()))
 }
 
 /// Issue the next ID, or a batch with `?count=n`.

@@ -6,9 +6,10 @@
 /data/
 *.redb
 
-# Node / PHP SDKs
+# Node
 node_modules/
-/sdk/php/vendor/
+# Local builds of the embedded database module (npm run build:native)
+/sdk/node/native/
 
 # Editors and OS
 .DS_Store

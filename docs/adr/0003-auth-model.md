@@ -12,7 +12,7 @@ Applications need credentials to generate and read IDs. Destructive operations
 ## Decision
 
 - **One admin account** (username `admin`), created locally with
-  `idbseqd admin init`. Password ≥ 12 characters, stored as an Argon2id hash. Signing
+  `idbseqd admin init`. Password ≥ 8 characters (lowered from 12 by the owner on 2026-11-17), stored as an Argon2id hash. Signing
   in returns an opaque 256-bit session token (stored hashed, 15-minute TTL); 5 failed
   logins in 15 minutes lock the account for 15 minutes.
 - **API keys** `idb_<id>_<secret>` for applications, created by the admin, shown once,

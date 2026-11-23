@@ -7,7 +7,9 @@
 
 pub mod admin;
 pub mod keys;
+pub mod lockout;
 pub mod secrets;
+pub mod setup;
 
 use std::time::SystemTime;
 
@@ -136,6 +138,9 @@ impl FromRequestParts<AppState> for Principal {
 
 impl Principal {
     fn authenticate(parts: &Parts, state: &AppState) -> Result<Self, ApiError> {
+        if let Some(expected) = state.local_token() {
+            return Self::authenticate_local(parts, state, expected);
+        }
         let now = SystemTime::now();
         let principal = bearer(parts).and_then(|token| {
             if token.starts_with(keys::KEY_PREFIX) {
@@ -154,7 +159,27 @@ impl Principal {
         state.check_rate(&principal.actor())?;
         Ok(principal)
     }
+
+    /// `idbseqd console`: the token printed at start is the admin; nothing else is.
+    fn authenticate_local(
+        parts: &Parts,
+        state: &AppState,
+        expected: &str,
+    ) -> Result<Self, ApiError> {
+        match bearer(parts) {
+            Some(token) if secrets::constant_time_eq(token, expected) => Ok(Self::Admin {
+                session: LOCAL_SESSION.to_owned(),
+            }),
+            _ => {
+                state.metrics().auth_failure();
+                Err(ApiError::unauthorized())
+            }
+        }
+    }
 }
+
+/// The session name of the admin in `idbseqd console`.
+pub const LOCAL_SESSION: &str = "local";
 
 #[cfg(test)]
 mod tests {

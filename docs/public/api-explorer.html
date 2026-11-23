@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>idbseq API explorer</title>
+    <meta name="description" content="Every idbseq endpoint, schema and error code, generated from the OpenAPI contract." />
+    <link rel="icon" href="./logo.svg" type="image/svg+xml" />
+    <style>
+      :root {
+        --bar-bg: #f6f8fa;
+        --bar-fg: #1f2328;
+        --bar-muted: #59636e;
+        --bar-border: #d1d9e0;
+        --field-bg: #fff;
+        --error: #d1242f;
+        color-scheme: light dark;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bar-bg: #151b23;
+          --bar-fg: #f0f6fc;
+          --bar-muted: #9198a1;
+          --bar-border: #3d444d;
+          --field-bg: #0d1117;
+          --error: #f85149;
+        }
+      }
+      body { margin: 0; }
+      .server-bar {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 8px 12px;
+        padding: 10px 16px;
+        background: var(--bar-bg);
+        color: var(--bar-fg);
+        border-bottom: 1px solid var(--bar-border);
+        font: 14px/1.4 system-ui, -apple-system, 'Segoe UI', sans-serif;
+      }
+      .server-bar label { font-weight: 600; }
+      .server-bar input {
+        flex: 1 1 260px;
+        max-width: 420px;
+        padding: 5px 10px;
+        font: 13px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        color: inherit;
+        background: var(--field-bg);
+        border: 1px solid var(--bar-border);
+        border-radius: 6px;
+      }
+      .server-bar button {
+        padding: 5px 12px;
+        font: inherit;
+        font-weight: 500;
+        color: inherit;
+        background: var(--field-bg);
+        border: 1px solid var(--bar-border);
+        border-radius: 6px;
+        cursor: pointer;
+      }
+      .server-bar .hint { flex-basis: 100%; margin: 0; color: var(--bar-muted); font-size: 13px; }
+      .server-bar .hint code { font-size: 12px; }
+      .server-bar .error { color: var(--error); }
+    </style>
+  </head>
+  <body>
+    <form class="server-bar" id="server-form" novalidate>
+      <label for="server-url">Server URL</label>
+      <input id="server-url" name="server" type="url" inputmode="url" spellcheck="false" autocomplete="url" />
+      <button type="submit">Use this server</button>
+      <p class="hint" id="server-hint">
+        Requests and code samples go to this idbseqd. It sends no CORS headers, so a request sent from this page
+        only reaches it when the explorer runs on the same server: set <code>swagger_ui = true</code> and open
+        <code>/docs</code> there, or copy a sample and run it.
+      </p>
+    </form>
+    <div id="app"></div>
+    <!-- Renders openapi.json, copied from api/openapi.json at build time. -->
+    <script src="https://cdn.jsdelivr.net/npm/@scalar/api-reference@1.76.4"></script>
+    <script>
+      (function () {
+        const STORAGE_KEY = 'idbseq.explorer.server';
+        const DEFAULT_SERVER = 'http://127.0.0.1:7878';
+
+        /** An http(s) URL without a trailing slash, or null. */
+        function normalize(value) {
+          try {
+            const url = new URL(value.trim());
+            if (url.protocol !== 'http:' && url.protocol !== 'https:') return null;
+            return url.origin + url.pathname.replace(/\/+$/, '');
+          } catch {
+            return null;
+          }
+        }
+
+        function load() {
+          try {
+            return normalize(localStorage.getItem(STORAGE_KEY) ?? '') ?? DEFAULT_SERVER;
+          } catch {
+            return DEFAULT_SERVER;
+          }
+        }
+
+        // A ?server= link wins over the saved choice (it is also how a change applies).
+        const fromLink = normalize(new URL(location.href).searchParams.get('server') ?? '');
+        const active = fromLink ?? load();
+        const form = document.getElementById('server-form');
+        const input = document.getElementById('server-url');
+        const hint = document.getElementById('server-hint');
+        input.value = active;
+
+        form.addEventListener('submit', function (event) {
+          event.preventDefault();
+          const next = normalize(input.value);
+          if (next === null) {
+            hint.textContent = 'Enter an http:// or https:// URL, such as ' + DEFAULT_SERVER + '.';
+            hint.classList.add('error');
+            input.setAttribute('aria-invalid', 'true');
+            return;
+          }
+          try {
+            localStorage.setItem(STORAGE_KEY, next);
+          } catch {
+            // Storage blocked: the choice lasts only for this load.
+          }
+          if (next === active) return;
+          const url = new URL(location.href);
+          url.searchParams.set('server', next);
+          location.replace(url.href);
+        });
+
+        Scalar.createApiReference('#app', {
+          url: './openapi.json',
+          metaData: { title: 'idbseq API explorer' },
+          servers: [{ url: active, description: 'Your idbseqd' }],
+        });
+      })();
+    </script>
+  </body>
+</html>

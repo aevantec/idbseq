@@ -1,12 +1,15 @@
 [package]
 name = "idbseq-core"
-description = "Collection model, validation, sequence engine and storage trait for idbseq"
+description = "The engine of idbseq: collections, validation, the sequence engine and redb storage"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 repository.workspace = true
+homepage.workspace = true
 license.workspace = true
-publish.workspace = true
+readme = "README.md"
+keywords = ["sequence", "id", "counter", "redb"]
+categories = ["database-implementations"]
 
 [dependencies]
 redb.workspace = true

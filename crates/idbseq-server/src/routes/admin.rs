@@ -8,9 +8,12 @@ use idbseq_core::engine::{DEFAULT_PAGE_LIMIT, MAX_PAGE_LIMIT};
 use super::blocking;
 use crate::audit::{Action, Event, Filter};
 use crate::auth::Principal;
-use crate::auth::admin::AdminError;
+use crate::auth::admin::{ADMIN_USERNAME, AdminError};
+use crate::auth::lockout::client_key;
 use crate::clock::rfc3339;
-use crate::dto::{AuditDto, AuditQuery, LoginBody, PasswordBody, SessionDto};
+use crate::dto::{
+    AuditDto, AuditQuery, LoginBody, PasswordBody, SessionDto, SessionExpiryDto, SetupBody,
+};
 use crate::envelope::{EmptyEnvelope, Envelope, Meta, Reply};
 use crate::error::{ApiError, Code};
 use crate::extract::{ApiJson, ApiQuery, RequestContext};
@@ -19,7 +22,9 @@ use crate::state::AppState;
 fn admin_error(error: &AdminError) -> ApiError {
     match error {
         AdminError::NotInitialized => ApiError::forbidden(error.to_string()),
-        AdminError::InvalidCredentials => ApiError::new(Code::Unauthorized, error.to_string()),
+        AdminError::InvalidCredentials | AdminError::Locked => {
+            ApiError::new(Code::Unauthorized, error.to_string())
+        }
         AdminError::WeakPassword => ApiError::field("new_password", &error.to_string()),
         AdminError::AlreadyInitialized | AdminError::Storage(_) | AdminError::Hash(_) => {
             ApiError::internal(&error)
@@ -51,11 +56,13 @@ pub async fn login(
     ctx: RequestContext,
     ApiJson(body): ApiJson<LoginBody>,
 ) -> Result<Reply<SessionDto>, ApiError> {
+    let client = client_key(ctx.client_ip.as_deref());
+    let _turn = state.password_check().await?;
     let worker = state.clone();
     let result = blocking(move || {
         Ok(worker
             .admin()
-            .login(&body.username, &body.password, SystemTime::now()))
+            .login(&client, &body.username, &body.password, SystemTime::now()))
     })
     .await?;
     match result {
@@ -67,12 +74,72 @@ pub async fn login(
             }))
         }
         Err(error) => {
-            if matches!(error, AdminError::InvalidCredentials) {
-                state.metrics().auth_failure();
-                state.record(admin_event("anonymous", Action::LoginFailed, &ctx));
+            match error {
+                AdminError::InvalidCredentials => {
+                    state.metrics().auth_failure();
+                    state.record(admin_event("anonymous", Action::LoginFailed, &ctx));
+                }
+                // Refused while locked out: counted, not audited, so a flood of
+                // them cannot grow the audit log.
+                AdminError::Locked => state.metrics().auth_failure(),
+                _ => {}
             }
             Err(admin_error(&error))
         }
+    }
+}
+
+/// Create the admin from the one-time link `idbseqd` prints on a first start with
+/// the console on, then sign in. Served only when the console is on.
+#[utoipa::path(post, path = "/v1/auth/setup", tag = "auth",
+    request_body = SetupBody,
+    responses(
+        (status = 200, description = "Admin created; session token", body = Envelope<SessionDto>),
+        (status = 400, description = "VALIDATION_FAILED: the password is too short"),
+        (status = 401, description = "UNAUTHORIZED: the setup link is invalid, used or expired"),
+        (status = 403, description = "FORBIDDEN: an admin account already exists"),
+        (status = 404, description = "NOT_FOUND: the console is off")))]
+pub async fn setup(
+    State(state): State<AppState>,
+    ctx: RequestContext,
+    ApiJson(body): ApiJson<SetupBody>,
+) -> Result<Reply<SessionDto>, ApiError> {
+    let client = client_key(ctx.client_ip.as_deref());
+    let _turn = state.password_check().await?;
+    let worker = state.clone();
+    let session = blocking(move || {
+        let now = SystemTime::now();
+        let admin = worker.admin();
+        let created = worker
+            .setup()
+            .complete(&body.token, now, || {
+                admin.init(&body.password, now)?;
+                admin.login(&client, ADMIN_USERNAME, &body.password, now)
+            })
+            .map_err(|error| ApiError::new(Code::Unauthorized, error.to_string()))?;
+        created.map_err(|error| {
+            if matches!(error, AdminError::AlreadyInitialized) {
+                worker.setup().cancel();
+            }
+            setup_error(&error)
+        })
+    })
+    .await?;
+    state.record(admin_event("admin", Action::AdminInit, &ctx));
+    state.record(admin_event("admin", Action::Login, &ctx));
+    Ok(Reply::ok(SessionDto {
+        token: session.token,
+        expires_at: rfc3339(session.expires_at),
+    }))
+}
+
+fn setup_error(error: &AdminError) -> ApiError {
+    match error {
+        AdminError::AlreadyInitialized => {
+            ApiError::forbidden("an admin account already exists; sign in instead")
+        }
+        AdminError::WeakPassword => ApiError::field("password", &error.to_string()),
+        other => admin_error(other),
     }
 }
 
@@ -92,6 +159,32 @@ pub async fn logout(
     Ok(Reply::ok(()))
 }
 
+/// Keep the current admin session alive: it now expires a full session TTL
+/// from now, but never more than 12 hours after sign-in. The token is unchanged.
+#[utoipa::path(post, path = "/v1/auth/refresh", tag = "auth",
+    security(("bearerAuth" = [])),
+    responses(
+        (status = 200, description = "New expiry", body = Envelope<SessionExpiryDto>),
+        (status = 401, description = "UNAUTHORIZED: the session has ended"),
+        (status = 403, description = "FORBIDDEN: API keys have no session to refresh")))]
+pub async fn refresh(
+    State(state): State<AppState>,
+    principal: Principal,
+) -> Result<Reply<SessionExpiryDto>, ApiError> {
+    let Principal::Admin { session } = principal else {
+        return Err(ApiError::forbidden(
+            "only an admin session can be refreshed",
+        ));
+    };
+    let worker = state.clone();
+    let expires_at = blocking(move || Ok(worker.admin().refresh(&session, SystemTime::now())?))
+        .await?
+        .ok_or_else(ApiError::unauthorized)?;
+    Ok(Reply::ok(SessionExpiryDto {
+        expires_at: rfc3339(expires_at),
+    }))
+}
+
 /// Change the admin password. Revokes every session.
 #[utoipa::path(post, path = "/v1/admin/password", tag = "auth",
     request_body = PasswordBody,
@@ -104,6 +197,7 @@ pub async fn change_password(
     ApiJson(body): ApiJson<PasswordBody>,
 ) -> Result<Reply<()>, ApiError> {
     principal.require_admin()?;
+    let _turn = state.password_check().await?;
     let worker = state.clone();
     blocking(move || {
         let admin = worker.admin();

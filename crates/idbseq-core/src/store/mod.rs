@@ -18,7 +18,10 @@ mod memory;
 pub mod redb;
 
 pub use memory::InMemoryStore;
-pub use redb::{GroupCommitConfig, RedbStore};
+pub use redb::{
+    BlockCache, DEFAULT_BUSY_TIMEOUT, GroupCommitConfig, IfMissing, OpenError, RedbStore,
+    SharedFileStore, decode_collection, open_waiting,
+};
 
 /// A read-modify-write step for [`SequenceStore::update`].
 pub type Change<'a> = &'a dyn Fn(&Collection) -> Result<Collection, StoreError>;
@@ -167,6 +170,15 @@ pub enum StoreError {
     Invalid(#[from] ValidationErrors),
     #[error("storage backend failed: {0}")]
     Backend(String),
+    /// Another process held the file for the whole busy timeout ([`SharedFileStore`]).
+    #[error("{} stayed in use by another process for {waited:?}", path.display())]
+    Busy {
+        path: std::path::PathBuf,
+        waited: std::time::Duration,
+    },
+    /// The file could not be opened ([`SharedFileStore`]).
+    #[error(transparent)]
+    Unavailable(redb::OpenError),
 }
 
 /// Select the names of a sorted map for one page. Shared by every backend.

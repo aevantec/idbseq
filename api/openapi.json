@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "idbseq",
-    "description": "Increasing numeric ID sequences over HTTP/JSON. Every response uses the envelope `{ success, data, error, meta? }`. Error codes: VALIDATION_FAILED 400, UNAUTHORIZED 401, FORBIDDEN 403, PROTECTED_COLLECTION 403, NOT_FOUND 404, COLLECTION_NOT_FOUND 404, COLLECTION_EXISTS 409, SEQUENCE_EXHAUSTED 409, REQUEST_TIMEOUT 408, PAYLOAD_TOO_LARGE 413, RATE_LIMITED 429 (with Retry-After), INTERNAL 500. See docs/API.md.",
+    "description": "Increasing numeric ID sequences over HTTP/JSON. Every response uses the envelope `{ success, data, error, meta? }`. Error codes: VALIDATION_FAILED 400, UNAUTHORIZED 401, FORBIDDEN 403, PROTECTED_COLLECTION 403, NOT_FOUND 404, COLLECTION_NOT_FOUND 404, COLLECTION_EXISTS 409, SEQUENCE_EXHAUSTED 409, REQUEST_TIMEOUT 408, PAYLOAD_TOO_LARGE 413, RATE_LIMITED 429 (with Retry-After), INTERNAL 500, and from `idbseqd console` only DATABASE_BUSY 503 (with Retry-After) and DATABASE_UNAVAILABLE 503. See docs/API.md.",
     "license": {
       "name": "MIT",
       "identifier": "MIT"
@@ -305,6 +305,111 @@
             "bearerAuth": []
           }
         ]
+      }
+    },
+    "/v1/auth/refresh": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Keep the current admin session alive: it now expires a full session TTL\nfrom now, but never more than 12 hours after sign-in. The token is unchanged.",
+        "operationId": "refresh",
+        "responses": {
+          "200": {
+            "description": "New expiry",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_SessionExpiryDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error400"
+          },
+          "401": {
+            "description": "UNAUTHORIZED: the session has ended"
+          },
+          "403": {
+            "description": "FORBIDDEN: API keys have no session to refresh"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error404"
+          },
+          "408": {
+            "$ref": "#/components/responses/Error408"
+          },
+          "413": {
+            "$ref": "#/components/responses/Error413"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error429"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error500"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/auth/setup": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Create the admin from the one-time link `idbseqd` prints on a first start with\nthe console on, then sign in. Served only when the console is on.",
+        "operationId": "setup",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetupBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Admin created; session token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_SessionDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "VALIDATION_FAILED: the password is too short"
+          },
+          "401": {
+            "description": "UNAUTHORIZED: the setup link is invalid, used or expired"
+          },
+          "403": {
+            "description": "FORBIDDEN: an admin account already exists"
+          },
+          "404": {
+            "description": "NOT_FOUND: the console is off"
+          },
+          "408": {
+            "$ref": "#/components/responses/Error408"
+          },
+          "413": {
+            "$ref": "#/components/responses/Error413"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error429"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error500"
+          }
+        }
       }
     },
     "/v1/collections": {
@@ -1148,7 +1253,9 @@
           "REQUEST_TIMEOUT",
           "PAYLOAD_TOO_LARGE",
           "RATE_LIMITED",
-          "INTERNAL"
+          "INTERNAL",
+          "DATABASE_BUSY",
+          "DATABASE_UNAVAILABLE"
         ]
       },
       "CollectionDto": {
@@ -1602,9 +1709,15 @@
           "data": {
             "type": "object",
             "required": [
-              "status"
+              "status",
+              "mode"
             ],
             "properties": {
+              "mode": {
+                "type": "string",
+                "description": "`server` for `idbseqd`, `console` for `idbseqd console <file>` (no\naccounts: the console signs in only through the link it printed).",
+                "example": "server"
+              },
               "status": {
                 "type": "string"
               }
@@ -1777,6 +1890,50 @@
                 "type": "string"
               },
               "token": {
+                "type": "string"
+              }
+            }
+          },
+          "error": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/ErrorBody"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "meta": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Meta"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "success": {
+            "type": "boolean"
+          }
+        }
+      },
+      "Envelope_SessionExpiryDto": {
+        "type": "object",
+        "description": "`{ success, data, error, meta? }`.",
+        "required": [
+          "success"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "A refreshed admin session: the same token, a later expiry.",
+            "required": [
+              "expires_at"
+            ],
+            "properties": {
+              "expires_at": {
                 "type": "string"
               }
             }
@@ -2074,9 +2231,15 @@
       "HealthDto": {
         "type": "object",
         "required": [
-          "status"
+          "status",
+          "mode"
         ],
         "properties": {
+          "mode": {
+            "type": "string",
+            "description": "`server` for `idbseqd`, `console` for `idbseqd console <file>` (no\naccounts: the console signs in only through the link it printed).",
+            "example": "server"
+          },
           "status": {
             "type": "string"
           }
@@ -2340,6 +2503,36 @@
             "type": "string"
           }
         }
+      },
+      "SessionExpiryDto": {
+        "type": "object",
+        "description": "A refreshed admin session: the same token, a later expiry.",
+        "required": [
+          "expires_at"
+        ],
+        "properties": {
+          "expires_at": {
+            "type": "string"
+          }
+        }
+      },
+      "SetupBody": {
+        "type": "object",
+        "description": "First-run setup: the token from the link `idbseqd` printed and the new admin password.",
+        "required": [
+          "token",
+          "password"
+        ],
+        "properties": {
+          "password": {
+            "type": "string",
+            "description": "At least 8 characters."
+          },
+          "token": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
       },
       "i64": {
         "type": "integer",

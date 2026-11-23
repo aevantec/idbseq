@@ -1,0 +1,5 @@
+node_modules/
+coverage/
+test-results/
+playwright-report/
+# dist/ is committed: idbseqd embeds it, so building the server needs no Node.

@@ -1,6 +1,6 @@
 # idbseq HTTP API v1
 
-This is the wire contract that `idbseqd`, the SDKs and the CLI implement. The
+This is the wire contract that `idbseqd`, the Node.js SDK and the CLI implement. The
 machine-readable version is [`api/openapi.json`](../api/openapi.json), generated
 from the server code; if the two ever disagree, the OpenAPI file wins and this
 document is fixed.
@@ -15,18 +15,35 @@ document is fixed.
 
 ## Envelope
 
-Every response, success or failure, has the same shape.
+Every response, success or failure, has the same shape. Success:
 
 ```json
-{ "success": true,  "data": { "id": 42 }, "error": null }
-{ "success": false, "data": null, "error": { "code": "SEQUENCE_EXHAUSTED", "message": "collection `orders` is exhausted", "details": null } }
+{ "success": true, "data": { "id": 42 }, "error": null }
+```
+
+Failure:
+
+```json
+{
+  "success": false,
+  "data": null,
+  "error": {
+    "code": "SEQUENCE_EXHAUSTED",
+    "message": "collection `orders` is exhausted",
+    "details": null
+  }
+}
 ```
 
 Paginated lists add `meta`:
 
 ```json
-{ "success": true, "data": [ … ], "error": null,
-  "meta": { "total": 120, "limit": 50, "next_cursor": "orders" } }
+{
+  "success": true,
+  "data": [ … ],
+  "error": null,
+  "meta": { "total": 120, "limit": 50, "next_cursor": "orders" }
+}
 ```
 
 `next_cursor` is `null` on the last page. Pass it back as `?cursor=` for the next page.
@@ -47,12 +64,15 @@ Paginated lists add `meta`:
 | `REQUEST_TIMEOUT`      | 408  | The request took longer than `limits.request_timeout_secs` (default 10) |
 | `RATE_LIMITED`         | 429  | Too many requests; the `Retry-After` header gives seconds to wait  |
 | `INTERNAL`             | 500  | Unexpected server error; the message is generic, details are logged |
+| `DATABASE_BUSY`        | 503  | `idbseqd console` only: another process held the file for the whole busy timeout (5 s). Has `Retry-After` |
+| `DATABASE_UNAVAILABLE` | 503  | `idbseqd console` only: the file cannot be opened (deleted or moved while in use, unreadable, or not an idbseq file) |
 
 Clients must treat unknown codes as errors of the given HTTP status.
 
 ## Authentication
 
-Send `Authorization: Bearer <token>` on every `/v1` call except `POST /v1/auth/login`.
+Send `Authorization: Bearer <token>` on every `/v1` call except `POST /v1/auth/login`
+and `POST /v1/auth/setup`.
 The token is either:
 
 - an **API key**, `idb_<id>_<secret>`, created by the admin (`POST /v1/keys`), with
@@ -67,6 +87,29 @@ Scopes:
 | `read`     | `GET /v1/collections`, `GET /v1/collections/{name}`, `GET …/last`         |
 | `generate` | `POST …/next`                                                             |
 | `manage`   | create, update, reset and delete **unprotected** collections              |
+
+The same scopes in the CLI and the MCP server:
+
+| Scope      | CLI commands                                      | MCP tools                            |
+| ---------- | ------------------------------------------------- | ------------------------------------ |
+| `read`     | `collections list`, `collections info`, `last`    | `list_collections`, `get_collection` |
+| `generate` | `next`                                            | `next_id`                            |
+| `manage`   | `collections create`, `update`, `delete`; `reset` | `create_collection`                  |
+
+- Scopes are independent: `generate` does not include `read`. A call outside the
+  key's scopes gets `FORBIDDEN`.
+- No scope covers API keys or the audit log; those are admin-only whatever the
+  key holds.
+
+Choosing scopes: give each key the fewest scopes and the narrowest allow-list it
+needs, so a leaked key can only do that much, to those collections.
+
+| Who                                | Scopes                 | Example                                                                      |
+| ---------------------------------- | ---------------------- | ---------------------------------------------------------------------------- |
+| A service that only needs IDs      | `generate`             | `idbseq keys create billing --scope generate --collection orders`            |
+| An AI agent through the MCP server | `generate`, `read`     | `idbseq keys create my-agent --scope generate,read --collection tickets`     |
+| A dashboard or monitoring          | `read`                 | `idbseq keys create grafana --scope read`                                    |
+| Provisioning or setup scripts      | `manage` (plus `read`) | `idbseq keys create provisioner --scope manage,read --collection 'tenant.*'` |
 
 The allow-list (`collections` on the key) holds exact names or prefixes ending in `*`
 (`"eu.*"`). An empty or missing list allows every collection. List results are
@@ -98,7 +141,7 @@ Reading and generating work with ordinary `read` / `generate` keys.
 ```
 
 - `name`: 1–64 chars, `^[a-z0-9][a-z0-9_.-]*$`, case-sensitive, unique.
-- `step` > 0. `start <= max`.
+- `step` > 0 and at most 9223372036854775807 (an int64). `start <= max`.
 - `durability`: `{ "mode": "strict" }` (default; each issued ID is on disk before it
   is returned) or `{ "mode": "block", "size": N }` (reserve N IDs on disk at a time;
   a crash skips the rest of the block, leaving a gap, never a duplicate).
@@ -123,19 +166,40 @@ Reading and generating work with ordinary `read` / `generate` keys.
 
 ### Health
 
-- `GET /healthz` → `200 { "success": true, "data": { "status": "ok" }, "error": null }`
-- `GET /readyz` → `200` with `{ "status": "ready" }` once the store is open, `503` with `INTERNAL` otherwise.
+- `GET /healthz` → `200`:
+
+  ```json
+  { "success": true, "data": { "status": "ok", "mode": "server" }, "error": null }
+  ```
+
+  `mode` is `console` under `idbseqd console <file>`, which has no accounts.
+- `GET /readyz` → `200` with `{ "status": "ready", "mode": "server" }` once the store is open, `503` with `INTERNAL` otherwise.
 
 ### Auth
 
 - `POST /v1/auth/login` body `{ "username": "admin", "password": "…" }`
   → `200 data: { "token": "…", "expires_at": "…" }`.
   The single admin's username is `admin`. Wrong user or password → `UNAUTHORIZED`
-  with the same message. After 5 failures in 15 minutes the account is locked for
-  15 minutes (`UNAUTHORIZED`, same message).
+  with the same message. After 5 failures in 15 minutes from one client address
+  (an IPv6 client's /64 network), that address is locked out for 15 minutes
+  (`UNAUTHORIZED`, same message); other addresses can still sign in. After 50
+  failures from all addresses together, every login is refused for 15 minutes.
+  Changing or resetting the password ends every lockout.
+- `POST /v1/auth/setup` body `{ "token": "…", "password": "…" }`
+  → `200 data: { "token": "…", "expires_at": "…" }`. First-run setup from the
+  [console](guide/console.md#first-run-setup): served only when the console is on
+  (`404` otherwise). `token` comes from the one-time link `idbseqd` prints when it
+  starts with no admin; it works once and expires after 30 minutes. Creates the
+  admin with `password` (≥ 8 chars, else `VALIDATION_FAILED` and the link stays
+  valid) and signs in. A wrong, used or expired token → `UNAUTHORIZED`; an
+  existing admin → `FORBIDDEN`.
 - `POST /v1/auth/logout` (admin token) → `200 data: null`. Revokes the token.
+- `POST /v1/auth/refresh` (admin token) → `200 data: { "expires_at": "…" }`. Keeps
+  the session alive: it now expires a full session TTL from now, but never more
+  than 12 hours after sign-in. The token is unchanged. An API key → `FORBIDDEN`;
+  an ended session → `UNAUTHORIZED`.
 - `POST /v1/admin/password` (admin) body `{ "current_password": "…", "new_password": "…" }`
-  → `200 data: null`. New password ≥ 12 chars. Revokes every session, including this one.
+  → `200 data: null`. New password ≥ 8 chars. Revokes every session, including this one.
 
 ### Collections
 
@@ -180,14 +244,21 @@ Reading and generating work with ordinary `read` / `generate` keys.
 
 - `GET /v1/keys` → `data: [ApiKey…]` (no secrets).
 - `POST /v1/keys` body `{ "name", "scopes": ["read"|"generate"|"manage", …], "collections"?: [ … ] }`
-  → `201 data: ApiKey + { "key": "idb_<id>_<secret>" }`. The full key is shown only here.
+  → `201 data: ApiKey + { "key": "idb_<id>_<secret>" }`.
+  The full key is shown only here.
 - `DELETE /v1/keys/{id}` → `data: null`. Revoked immediately. Unknown id → `NOT_FOUND`.
 
 ### Audit (admin)
 
 - `GET /v1/audit?limit=50&cursor=…&collection=…&action=…`
   → `data: [AuditEntry…]`, `meta`. Newest first.
-  `AuditEntry`: `{ "id", "at", "actor", "action", "collection", "previous", "new", "request_id", "client_ip" }`.
+  `AuditEntry` fields:
+
+  ```
+  { "id", "at", "actor", "action", "collection", "previous", "new",
+    "request_id", "client_ip" }
+  ```
+
   Actions: `collection.create`, `collection.update`, `collection.reset`,
   `collection.delete`, `key.create`, `key.revoke`, `auth.login`, `auth.login_failed`,
   `admin.password_change`, `admin.init`.
@@ -198,7 +269,8 @@ Reading and generating work with ordinary `read` / `generate` keys.
 
 ## Headers
 
-- Every response carries `X-Request-Id` (echoed from the request if sent, else generated).
+- Every response carries `X-Request-Id`: echoed from the request if sent (1–128
+  visible ASCII characters; anything else is replaced), else generated.
 - `429` responses carry `Retry-After` (seconds).
 - Security headers: `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`,
   `Referrer-Policy: no-referrer`, `Cache-Control: no-store`.

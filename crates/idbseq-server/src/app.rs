@@ -21,8 +21,12 @@ use tower_http::trace::TraceLayer;
 use crate::error::{ApiError, Code};
 use crate::routes::{admin, collections, health, ids, keys};
 use crate::state::AppState;
+use crate::ui;
 
 pub const REQUEST_ID_HEADER: &str = "x-request-id";
+/// Longest request ID kept from a client. It is logged and stored in audit
+/// entries, so a longer (or non-printable) one is replaced with a fresh UUID.
+pub const MAX_REQUEST_ID_LEN: usize = 128;
 
 const SECURITY_HEADERS: [(&str, &str); 4] = [
     ("x-content-type-options", "nosniff"),
@@ -34,16 +38,11 @@ const SECURITY_HEADERS: [(&str, &str); 4] = [
 /// Build the full application.
 pub fn router(state: AppState) -> Router {
     let config = state.config().clone();
+    let is_local = state.local_token().is_some();
     let api = Router::new()
         .route("/healthz", get(health::healthz))
         .route("/readyz", get(health::readyz))
         .route("/v1/openapi.json", get(health::openapi))
-        .route("/v1/auth/login", post(admin::login))
-        .route("/v1/auth/logout", post(admin::logout))
-        .route("/v1/admin/password", post(admin::change_password))
-        .route("/v1/audit", get(admin::audit))
-        .route("/v1/keys", get(keys::list).post(keys::create))
-        .route("/v1/keys/{id}", axum::routing::delete(keys::revoke))
         .route(
             "/v1/collections",
             get(collections::list).post(collections::create),
@@ -57,6 +56,19 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/collections/{name}/next", post(ids::next))
         .route("/v1/collections/{name}/last", get(ids::last))
         .route("/v1/collections/{name}/reset", post(ids::reset));
+    // `idbseqd console` has no accounts: its token is the admin, and keys and
+    // the audit log would only live in memory.
+    let api = if is_local {
+        api
+    } else {
+        api.route("/v1/auth/login", post(admin::login))
+            .route("/v1/auth/logout", post(admin::logout))
+            .route("/v1/auth/refresh", post(admin::refresh))
+            .route("/v1/admin/password", post(admin::change_password))
+            .route("/v1/audit", get(admin::audit))
+            .route("/v1/keys", get(keys::list).post(keys::create))
+            .route("/v1/keys/{id}", axum::routing::delete(keys::revoke))
+    };
     let api = if config.metrics.enabled {
         api.route("/metrics", get(health::metrics))
     } else {
@@ -67,11 +79,24 @@ pub fn router(state: AppState) -> Router {
     } else {
         api
     };
+    let api = if config.ui && !is_local {
+        api.route("/v1/auth/setup", post(admin::setup))
+    } else {
+        api
+    };
+    let api = if config.ui {
+        api.route("/ui", get(ui::redirect))
+            .route("/ui/", get(ui::index))
+            .route("/ui/{*path}", get(ui::file))
+    } else {
+        api
+    };
 
     let request_id = HeaderName::from_static(REQUEST_ID_HEADER);
     api.fallback(not_found)
         .layer(
             ServiceBuilder::new()
+                .layer(middleware::from_fn(drop_unusable_request_id))
                 .layer(SetRequestIdLayer::new(request_id.clone(), MakeRequestUuid))
                 .layer(TraceLayer::new_for_http().make_span_with(make_span))
                 .layer(PropagateRequestIdLayer::new(request_id))
@@ -122,6 +147,25 @@ async fn record_metrics(State(state): State<AppState>, request: Request, next: N
         .metrics()
         .request(response.status().as_u16(), started.elapsed().as_secs_f64());
     response
+}
+
+/// Remove a client's request ID that is too long or not visible ASCII, so the
+/// next layer generates one instead.
+async fn drop_unusable_request_id(mut request: Request, next: Next) -> Response {
+    let is_usable = |value: &HeaderValue| {
+        let bytes = value.as_bytes();
+        !bytes.is_empty()
+            && bytes.len() <= MAX_REQUEST_ID_LEN
+            && bytes.iter().all(u8::is_ascii_graphic)
+    };
+    if request
+        .headers()
+        .get(REQUEST_ID_HEADER)
+        .is_some_and(|value| !is_usable(value))
+    {
+        request.headers_mut().remove(REQUEST_ID_HEADER);
+    }
+    next.run(request).await
 }
 
 /// Wrap error responses produced outside our handlers (405, 408, 413, …) in the envelope.

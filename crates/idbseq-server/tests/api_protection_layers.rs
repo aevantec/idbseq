@@ -53,6 +53,46 @@ async fn every_response_carries_security_headers_and_a_request_id() {
 }
 
 #[tokio::test]
+async fn an_unusable_request_id_is_replaced_with_a_fresh_one() {
+    let app = TestApp::new();
+    let too_long = "x".repeat(129);
+    let longest = "y".repeat(128);
+
+    let replaced = app
+        .send_with(
+            Method::GET,
+            "/healthz",
+            None,
+            None,
+            &[("x-request-id", too_long.as_str())],
+        )
+        .await;
+    let kept = app
+        .send_with(
+            Method::GET,
+            "/healthz",
+            None,
+            None,
+            &[("x-request-id", longest.as_str())],
+        )
+        .await;
+    let spaced = app
+        .send_with(
+            Method::GET,
+            "/healthz",
+            None,
+            None,
+            &[("x-request-id", "has a space")],
+        )
+        .await;
+
+    assert_ne!(replaced.headers["x-request-id"], too_long);
+    assert!(!replaced.headers["x-request-id"].is_empty());
+    assert_eq!(kept.headers["x-request-id"], longest);
+    assert_ne!(spaced.headers["x-request-id"], "has a space");
+}
+
+#[tokio::test]
 async fn oversized_bodies_are_rejected_with_413() {
     let app = TestApp::with_config(|c| Config {
         limits: LimitsConfig {
@@ -117,8 +157,8 @@ async fn health_endpoints_need_no_credentials() {
     app.state.set_not_ready();
     let draining = app.send(Method::GET, "/readyz", None, None).await;
 
-    assert_eq!(live.data(), &json!({"status": "ok"}));
-    assert_eq!(ready.data(), &json!({"status": "ready"}));
+    assert_eq!(live.data(), &json!({"status": "ok", "mode": "server"}));
+    assert_eq!(ready.data(), &json!({"status": "ready", "mode": "server"}));
     assert_eq!(draining.status, StatusCode::SERVICE_UNAVAILABLE);
 }
 

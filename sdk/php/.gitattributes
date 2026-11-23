@@ -1,7 +1,0 @@
-# Keep the Composer dist archive (from the aevantec/idbseq-php mirror) to the library itself.
-/tests              export-ignore
-/bin                export-ignore
-/phpunit.xml.dist   export-ignore
-/phpstan.neon.dist  export-ignore
-/.gitattributes     export-ignore
-/.gitignore         export-ignore

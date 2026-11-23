@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import * as decode from './decode.js';
-import { UnexpectedResponseError } from './errors.js';
+import { UnauthorizedError, UnexpectedResponseError } from './errors.js';
+import { assertCount, collectionBody, compact } from './requests.js';
 import { resolveRetryPolicy, withRetry, type RetryOptions, type RetryPolicy } from './retry.js';
 import { send, type ApiRequest, type ApiResponse, type TransportConfig } from './transport.js';
 import type {
@@ -65,30 +66,8 @@ function collectionPath(name: string, suffix = ''): string {
   return `v1/collections/${encodeURIComponent(name)}${suffix}`;
 }
 
-function assertCount(count: number): void {
-  if (!Number.isSafeInteger(count) || count < 1) {
-    throw new RangeError('count must be an integer >= 1');
-  }
-}
-
-/** Drops keys whose value is `undefined` so they are not sent. */
-function compact(fields: Readonly<Record<string, unknown>>): Readonly<Record<string, unknown>> {
-  return Object.fromEntries(Object.entries(fields).filter(([, value]) => value !== undefined));
-}
-
-function collectionBody(spec: CollectionPatch & { readonly name?: string }): Readonly<Record<string, unknown>> {
-  return compact({
-    name: spec.name,
-    start: spec.start,
-    step: spec.step,
-    max: spec.max,
-    protected: spec.protected,
-    durability: spec.durability,
-  });
-}
-
 /** Client for the idbseq HTTP API v1. */
-export class IdbseqClient {
+export class IdbSeqClient {
   readonly #transport: TransportConfig;
   readonly #retry: RetryPolicy;
   readonly #apiKey: string | null;
@@ -176,13 +155,24 @@ export class IdbseqClient {
     return session;
   }
 
-  /** Revokes the admin session, if any, and falls back to the API key. */
+  /**
+   * Revokes the admin session, if any, and falls back to the API key. The
+   * session is dropped even if the request fails; an already expired session
+   * (401) counts as signed out.
+   */
   async logout(): Promise<void> {
     if (this.#sessionToken === null) {
       return;
     }
-    await this.#request({ method: 'POST', path: 'v1/auth/logout' });
-    this.#sessionToken = null;
+    try {
+      await this.#request({ method: 'POST', path: 'v1/auth/logout' });
+    } catch (error) {
+      if (!(error instanceof UnauthorizedError)) {
+        throw error;
+      }
+    } finally {
+      this.#sessionToken = null;
+    }
   }
 
   async createKey(spec: CreateKeySpec): Promise<CreatedApiKey> {

@@ -28,7 +28,7 @@ redb runs in a fresh temp directory with real syncs. On macOS that means
 ```sh
 # Criterion; HTML reports in target/criterion/
 cargo bench -p idbseq-core --bench advance
-cargo bench -p idbseq-core --bench advance -- single/redb   # filter by name
+cargo bench -p idbseq-core --bench advance -- single/redb # filter by name
 
 # Latency report and ratios, as Markdown
 cargo bench -p idbseq-core --bench load
@@ -66,7 +66,7 @@ On the server:
 
 ```sh
 # Rate limiting must be off (0) or above the expected rate, or requests get 429.
-cat > idbseq.toml <<'EOF'
+cat > idbseq.toml << 'EOF'
 bind = "0.0.0.0:7878"
 data_dir = "/var/lib/idbseq-bench"
 
@@ -84,8 +84,8 @@ On the load machine, from a checkout of this repository:
 
 ```sh
 IDBSEQ_BENCH_URL=http://<server-ip>:7878 \
-IDBSEQ_BENCH_ADMIN_PASSWORD='bench admin password' \
-IDBSEQ_BENCH_SECS=10 \
+  IDBSEQ_BENCH_ADMIN_PASSWORD='bench admin password' \
+  IDBSEQ_BENCH_SECS=10 \
   cargo bench -p idbseq-server --bench http_next
 ```
 

@@ -87,11 +87,12 @@ fn add_error_responses(operation: &mut Operation) {
             `{ success, data, error, meta? }`. Error codes: VALIDATION_FAILED 400, UNAUTHORIZED 401, \
             FORBIDDEN 403, PROTECTED_COLLECTION 403, NOT_FOUND 404, COLLECTION_NOT_FOUND 404, \
             COLLECTION_EXISTS 409, SEQUENCE_EXHAUSTED 409, REQUEST_TIMEOUT 408, PAYLOAD_TOO_LARGE 413, \
-            RATE_LIMITED 429 (with Retry-After), INTERNAL 500. See docs/API.md."
+            RATE_LIMITED 429 (with Retry-After), INTERNAL 500, and from `idbseqd console` only DATABASE_BUSY 503 \
+            (with Retry-After) and DATABASE_UNAVAILABLE 503. See docs/API.md."
     ),
     paths(
         health::healthz, health::readyz,
-        admin::login, admin::logout, admin::change_password, admin::audit,
+        admin::login, admin::setup, admin::logout, admin::refresh, admin::change_password, admin::audit,
         keys::list, keys::create, keys::revoke,
         collections::list, collections::create, collections::get, collections::update, collections::delete,
         ids::next, ids::last, ids::reset,

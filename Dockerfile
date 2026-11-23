@@ -1,4 +1,4 @@
-# syntax=docker/dockerfile:1.7
+# syntax=docker/dockerfile:1.7@sha256:a57df69d0ea827fb7266491f2813635de6f17269be881f696fbfdf2d83dda33e
 #
 # idbseq server image: static musl binaries on distroless, running as non-root.
 #
@@ -12,7 +12,9 @@ ARG RUST_VERSION=1.99.1
 ARG ZIG_VERSION=0.17.1
 ARG CARGO_ZIGBUILD_VERSION=0.24.1
 
-FROM --platform=$BUILDPLATFORM rust:${RUST_VERSION}-slim-bookworm AS build
+# Base images are pinned by digest (Dependabot proposes updates); change the
+# digest together with RUST_VERSION.
+FROM --platform=$BUILDPLATFORM rust:${RUST_VERSION}-slim-bookworm@sha256:f2c004e3d2d8b547e8cf7ffbc29205385f4e71d23e53e4e383065db5e9f822cd AS build
 ARG RUST_VERSION
 ARG ZIG_VERSION
 ARG CARGO_ZIGBUILD_VERSION
@@ -42,7 +44,7 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
     && mkdir -p /out/bin /out/data \
     && cp "target/${target}/release/idbseqd" "target/${target}/release/idbseq" /out/bin/
 
-FROM gcr.io/distroless/static-debian12:nonroot
+FROM gcr.io/distroless/static-debian12:nonroot@sha256:afa5c872c891853ca7fcf1f12c3edb23f7eeef36189728842dd51042ff57f7ab
 
 LABEL org.opencontainers.image.title="idbseq" \
       org.opencontainers.image.description="Increasing numeric ID sequences over HTTP/JSON" \

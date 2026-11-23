@@ -1,9 +1,4 @@
-import {
-  createApiError,
-  IdbseqError,
-  IdbseqNetworkError,
-  UnexpectedResponseError,
-} from './errors.js';
+import { createApiError, IdbSeqError, IdbSeqNetworkError, UnexpectedResponseError } from './errors.js';
 import { parseJson, stringifyJson } from './json.js';
 
 export type HttpMethod = 'GET' | 'POST' | 'PATCH' | 'DELETE';
@@ -81,7 +76,7 @@ function errorFromEnvelope(
   status: number,
   requestId: string | null,
   retryAfterSeconds: number | null,
-): IdbseqError {
+): IdbSeqError {
   if (!isRecord(error) || typeof error.code !== 'string') {
     return new UnexpectedResponseError({
       message: `HTTP ${status} with an error envelope that has no error code`,
@@ -126,15 +121,15 @@ function interpret(response: Response, text: string): ApiResponse {
   return { data: body.data ?? null, meta: body.meta ?? null, status, requestId };
 }
 
-function networkError(cause: unknown, timeoutMs: number): IdbseqNetworkError {
+function networkError(cause: unknown, timeoutMs: number): IdbSeqNetworkError {
   if (cause instanceof Error && cause.name === 'TimeoutError') {
-    return new IdbseqNetworkError(`request timed out after ${timeoutMs} ms`, cause);
+    return new IdbSeqNetworkError(`request timed out after ${timeoutMs} ms`, cause);
   }
   const detail = cause instanceof Error ? cause.message : String(cause);
-  return new IdbseqNetworkError(`request failed: ${detail}`, cause);
+  return new IdbSeqNetworkError(`request failed: ${detail}`, cause);
 }
 
-/** Sends one request and unwraps the envelope; throws an IdbseqError on failure. */
+/** Sends one request and unwraps the envelope; throws an IdbSeqError on failure. */
 export async function send(
   config: TransportConfig,
   request: ApiRequest,

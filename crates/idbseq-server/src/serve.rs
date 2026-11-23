@@ -11,6 +11,7 @@ use idbseq_core::store::RedbStore;
 use idbseq_core::store::redb::OpenError;
 
 use crate::app::{SHUTDOWN_GRACE, router};
+use crate::auth::setup;
 use crate::config::Config;
 use crate::state::AppState;
 
@@ -30,6 +31,8 @@ pub enum ServeError {
     Tls(String),
     #[error("server error: {0}")]
     Io(#[from] std::io::Error),
+    #[error("{0}")]
+    Console(String),
 }
 
 /// Install JSON logs filtered by `config.log`. Safe to call once per process.
@@ -74,6 +77,26 @@ fn bootstrap_admin(state: &AppState, password: &str) -> Result<(), ServeError> {
     Ok(())
 }
 
+/// With no admin yet: print a one-time setup link when the console is on (US-0047),
+/// otherwise say how to create the admin.
+fn offer_setup(config: &Config, state: &AppState) {
+    if !config.ui {
+        tracing::warn!("no admin account: run `idbseqd admin init` or set IDBSEQ_ADMIN_PASSWORD");
+        return;
+    }
+    let token = state.setup().issue(SystemTime::now());
+    let url = setup::link(config.bind, config.tls.is_some(), &token);
+    let minutes = setup::SETUP_TTL.as_secs() / 60;
+    // Printed rather than logged at a level a filter could hide: the person
+    // starting the server needs this line to finish setting it up.
+    eprintln!(
+        "\nidbseqd: no admin account yet. Open this link within {minutes} minutes to choose the admin password:\n\n{url}\n\n(It works once. Restart idbseqd for a new link, or run `idbseqd admin init` instead.)\n"
+    );
+    tracing::warn!(
+        "no admin account: waiting for first-run setup through the console link printed on stderr"
+    );
+}
+
 /// Serve until SIGTERM or Ctrl-C, then finish in-flight requests and close the store.
 ///
 /// # Errors
@@ -82,7 +105,7 @@ fn bootstrap_admin(state: &AppState, password: &str) -> Result<(), ServeError> {
 pub async fn run(config: Config, admin_password: Option<String>) -> Result<(), ServeError> {
     let (state, store) = open_state(&config, admin_password.as_deref())?;
     if !state.admin().exists()? {
-        tracing::warn!("no admin account: run `idbseqd admin init` or set IDBSEQ_ADMIN_PASSWORD");
+        offer_setup(&config, &state);
     }
     warn_if_exposed(&config);
     let local = crate::local::listen(&config.data_dir, state.clone())
@@ -147,7 +170,8 @@ fn warn_if_exposed(config: &Config) {
     }
 }
 
-async fn shutdown_on_signal(handle: Handle<SocketAddr>) {
+/// Finish in-flight requests and stop on Ctrl-C or SIGTERM.
+pub(crate) async fn shutdown_on_signal(handle: Handle<SocketAddr>) {
     let ctrl_c = async {
         let _ = tokio::signal::ctrl_c().await;
     };
