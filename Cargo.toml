@@ -3,7 +3,7 @@ resolver = "3"
 members = ["crates/*"]
 
 [workspace.package]
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 rust-version = "1.99"
 repository = "https://github.com/aevantec/idbseq"
@@ -20,7 +20,7 @@ criterion = "0.8"
 thiserror = "2"
 # Published together with idbseq, at the same version (the release checklist in
 # docs/releasing.md bumps both numbers).
-idbseq-core = { path = "crates/idbseq-core", version = "=0.1.0" }
+idbseq-core = { path = "crates/idbseq-core", version = "=0.1.1" }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

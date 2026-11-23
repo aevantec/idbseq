@@ -1,6 +1,9 @@
 import { type Collection, ForbiddenError, IdbSeqNetworkError, SequenceExhaustedError } from 'idbseq';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { connect, fakeApi, textOf, type Connected, type FakeApi } from './helpers/connect.js';
+import packageJson from '../package.json' with { type: 'json' };
+
+const PACKAGE_VERSION = packageJson.version;
 
 const ORDERS: Collection = {
   name: 'orders',
@@ -46,7 +49,7 @@ describe('tools', () => {
   });
 
   it('reports the package version', () => {
-    expect(mcp.client.getServerVersion()).toEqual({ name: 'idbseq', version: '0.1.0' });
+    expect(mcp.client.getServerVersion()).toEqual({ name: 'idbseq', version: PACKAGE_VERSION });
   });
 
   describe('next_id', () => {

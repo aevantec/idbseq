@@ -24,7 +24,7 @@ client). Both ship together.
 ```bash [Linux, macOS]
 # Linux (x86_64/aarch64, gnu or musl) and macOS (x86_64/arm64).
 # Pick the archive for your platform from the GitHub Release.
-VERSION=v0.1.0 # the latest release: github.com/aevantec/idbseq/releases
+VERSION=v0.1.1 # the latest release: github.com/aevantec/idbseq/releases
 TARGET=x86_64-unknown-linux-gnu
 curl -fsSLO "https://github.com/aevantec/idbseq/releases/download/$VERSION/idbseq-$VERSION-$TARGET.tar.gz"
 curl -fsSLO "https://github.com/aevantec/idbseq/releases/download/$VERSION/SHA256SUMS"
@@ -35,7 +35,7 @@ sudo install "idbseq-$VERSION-$TARGET/idbseqd" "idbseq-$VERSION-$TARGET/idbseq" 
 
 ```powershell [Windows]
 # x86_64 or aarch64. Pick the archive for your machine from the GitHub Release.
-$Version = "v0.1.0" # the latest release: github.com/aevantec/idbseq/releases
+$Version = "v0.1.1" # the latest release: github.com/aevantec/idbseq/releases
 $Target = "x86_64-pc-windows-msvc"
 $Base = "https://github.com/aevantec/idbseq/releases/download/$Version"
 Invoke-WebRequest "$Base/idbseq-$Version-$Target.zip" -OutFile "idbseq-$Version-$Target.zip"

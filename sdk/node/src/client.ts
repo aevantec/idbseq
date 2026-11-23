@@ -24,7 +24,7 @@ import type {
 
 export const DEFAULT_URL = 'http://127.0.0.1:7878';
 export const DEFAULT_TIMEOUT_MS = 10_000;
-const USER_AGENT = 'idbseq-node/0.1.0';
+const USER_AGENT = 'idbseq-node/0.1.1';
 
 export interface ClientOptions {
   /** Server base URL. Default `http://127.0.0.1:7878`. */

@@ -296,6 +296,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       VERSION: ${{ needs.verify.outputs.version }}
+      DIST_TAG: ${{ needs.verify.outputs.dist-tag }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
@@ -338,6 +339,8 @@ jobs:
           node sdk/node/scripts/npm-release.mjs main sdk/mcp/package.json "${VERSION}" --mcp
           (cd sdk/mcp && npm pack --pack-destination ../../npm-out)
           ls -l npm-out
+      - name: Rehearse the publish (npm publish --dry-run, the command npm-publish runs)
+        run: scripts/npm-publish.sh npm-out "${VERSION}" "${DIST_TAG}" --dry-run
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: npm-packages
@@ -386,6 +389,8 @@ jobs:
           registry-url: https://registry.npmjs.org
       - name: Use an npm that supports trusted publishing
         run: npm install --global npm@11.21.1
+      # Only for scripts/npm-publish.sh: nothing is installed or built here.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: npm-packages
@@ -396,25 +401,7 @@ jobs:
           DIST_TAG: ${{ needs.verify.outputs.dist-tag }}
           # An npm token that may publish @idbseq/*, idbseq and idbseq-mcp (see docs/releasing.md).
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: |
-          set -euo pipefail
-          publish() {
-            local tarball="$1" name="$2"
-            # A re-run after a partial failure skips what is already out.
-            if npm view "${name}@${VERSION}" version > /dev/null 2>&1; then
-              echo "${name}@${VERSION} is already published"
-              return
-            fi
-            npm publish "${tarball}" --provenance --access public --tag "${DIST_TAG}"
-          }
-          for tarball in npm-out/idbseq-*-"${VERSION}".tgz; do
-            target="$(basename "${tarball}" "-${VERSION}.tgz")"
-            target="${target#idbseq-}"
-            [[ "${target}" == "mcp" ]] && continue
-            publish "${tarball}" "@idbseq/${target}"
-          done
-          publish "npm-out/idbseq-${VERSION}.tgz" idbseq
-          publish "npm-out/idbseq-mcp-${VERSION}.tgz" idbseq-mcp
+        run: scripts/npm-publish.sh npm-out "${VERSION}" "${DIST_TAG}"
 
   crates:
     name: crates.io (idbseq-core, idbseq)

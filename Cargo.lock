@@ -1057,7 +1057,7 @@ dependencies = [
 
 [[package]]
 name = "idbseq"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "idbseq-core",
  "serde",
@@ -1069,7 +1069,7 @@ dependencies = [
 
 [[package]]
 name = "idbseq-cli"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "clap",
  "rpassword",
@@ -1084,7 +1084,7 @@ dependencies = [
 
 [[package]]
 name = "idbseq-core"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "criterion",
  "proptest",
@@ -1097,7 +1097,7 @@ dependencies = [
 
 [[package]]
 name = "idbseq-node"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "idbseq",
  "napi",
@@ -1107,7 +1107,7 @@ dependencies = [
 
 [[package]]
 name = "idbseq-server"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "argon2",
  "axum",

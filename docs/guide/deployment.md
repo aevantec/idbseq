@@ -24,7 +24,7 @@ as a non-root user (uid 65532) on a distroless base:
 | Data             | `/data`, a volume (`IDBSEQ_DATA_DIR`)                   |
 | Health check     | `idbseqd healthcheck` every 30 s                        |
 | Also contains    | the `idbseq` CLI                                        |
-| Tags             | `latest`, `0.1.0`, `0.1`, and the commit SHA            |
+| Tags             | `latest`, `0.1.1`, `0.1`, and the commit SHA            |
 
 ```yaml
 # compose.yaml
