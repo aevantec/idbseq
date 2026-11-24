@@ -113,7 +113,7 @@ jobs:
         if: runner.os == 'Linux'
         # cargo-zigbuild finds zig through `python3 -m ziglang`.
         run: python3 -m pip install --user --break-system-packages "ziglang==${ZIG_VERSION}"
-      - uses: taiki-e/install-action@75a7c0f87bd666af3cdb75c5b9e9d03ab6044e6f # v2.90.6
+      - uses: taiki-e/install-action@25f51f6b1bf4e18876107cece836f4f77ac17c8c # v2.90.7
         if: runner.os == 'Linux'
         with:
           tool: cargo-zigbuild@0.24.1
@@ -251,7 +251,7 @@ jobs:
       - name: Install zig and cargo-zigbuild
         if: runner.os == 'Linux'
         run: python3 -m pip install --user --break-system-packages "ziglang==${ZIG_VERSION}"
-      - uses: taiki-e/install-action@75a7c0f87bd666af3cdb75c5b9e9d03ab6044e6f # v2.90.6
+      - uses: taiki-e/install-action@25f51f6b1bf4e18876107cece836f4f77ac17c8c # v2.90.7
         if: runner.os == 'Linux'
         with:
           tool: cargo-zigbuild@0.24.1
