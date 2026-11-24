@@ -9,7 +9,7 @@
     "url": "git+https://github.com/aevantec/idbseq.git",
     "directory": "sdk/node"
   },
-  "homepage": "https://github.com/aevantec/idbseq/tree/main/sdk/node#readme",
+  "homepage": "https://aevantec.github.io/idbseq/clients/node",
   "type": "module",
   "engines": {
     "node": ">=20"

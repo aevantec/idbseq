@@ -9,7 +9,7 @@
     "url": "git+https://github.com/aevantec/idbseq.git",
     "directory": "sdk/mcp"
   },
-  "homepage": "https://github.com/aevantec/idbseq/tree/main/sdk/mcp#readme",
+  "homepage": "https://aevantec.github.io/idbseq/clients/mcp",
   "type": "module",
   "engines": {
     "node": ">=20"
