@@ -1,11 +1,15 @@
 # Actions are pinned to commit SHAs (with the version in a comment); Dependabot
-# proposes the new SHA and version together.
+# proposes the new SHA and version together. Each update is applied in the
+# private repository and reaches the public one by export, so a cooldown keeps
+# fast-moving actions to one batch a week instead of a PR per release.
 version: 2
 updates:
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 7
     groups:
       actions:
         patterns: ['*']
@@ -17,5 +21,7 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 7
     commit-message:
       prefix: chore
